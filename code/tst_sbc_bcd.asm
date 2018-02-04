@@ -1,0 +1,84 @@
+; Test SBC in BCD mode.
+;
+; NV-BDIZC
+; ??1110??
+;
+; Expected results:
+; 00 - 00 and C=0 gives 99 and N=1 V=0 Z=0 C=0 (B8)
+; 00 - 00 and C=1 gives 00 and N=0 V=0 Z=1 C=1 (3B)
+; 00 - 01 and C=1 gives 99 and N=1 V=0 Z=0 C=0 (B8)
+; 0a - 00 and C=1 gives 0a and N=0 V=0 Z=0 C=1 (39)
+; 0b - 00 and C=0 gives 0a and N=0 V=0 Z=0 C=1 (39)
+; 9a - 00 and C=1 gives 9a and N=1 V=0 Z=0 C=1 (B9)
+; 9b - 00 and C=0 gives 9a and N=1 V=0 Z=0 C=1 (B9)
+
+SBT1A=$8000
+SBT1F=$8001
+SBT2A=$8002
+SBT2F=$8003
+SBT3A=$8004
+SBT3F=$8005
+SBT4A=$8006
+SBT4F=$8007
+SBT5A=$8008
+SBT5F=$8009
+SBT6A=$800a
+SBT6F=$800b
+SBT7A=$800c
+SBT7F=$800d
+
+
+	.ORG $3000
+	
+	SED
+	CLC
+	LDA #$00
+	SBC #$00
+	STA SBT1A
+	PHP
+	PLA
+	STA SBT1F
+	SEC
+	LDA #$00
+	SBC #$00
+	STA SBT2A
+	PHP
+	PLA
+	STA SBT2F
+	SEC
+	LDA #$00
+	SBC #$01
+	STA SBT3A
+	PHP
+	PLA
+	STA SBT3F
+	SEC
+	LDA #$0A
+	SBC #$00
+	STA SBT4A
+	PHP
+	PLA
+	STA SBT4F
+	CLC
+	LDA #$0B
+	SBC #$00
+	STA SBT5A
+	PHP
+	PLA
+	STA SBT5F
+	SEC
+	LDA #$9A
+	SBC #$00
+	STA SBT6A
+	PHP
+	PLA
+	STA SBT6F
+	CLC
+	LDA #$9B
+	SBC #$00
+	STA SBT7A
+	PHP
+	PLA
+	STA SBT7F
+	CLD
+	RTS
