@@ -12,6 +12,9 @@
 ;   2012-01-11:
 ;       Added several I/O routines.
 ;
+;   2018-02-05
+;       Added kbhit() impl.
+;
 ;------------------------------------------------------------------
 
 ; M.O.S. API defines (kernal)
@@ -24,6 +27,7 @@
 .define		mos_CallGets	$FFF3
 .define		mos_CallPutCh	$FFF0
 .define		mos_CallPuts	$FFF6
+.define     mos_KbHit       $FFCC
 
 .setcpu	"6502"
 .import ldaxysp,pushax,popax,pusha,popa
@@ -33,7 +37,7 @@
 
 ; code
 
-.export _mos_puts,_puts,_putchar,_gets,_getchar,_getc,_fgetc 
+.export _mos_puts,_puts,_putchar,_gets,_getchar,_getc,_fgetc,_kbhit
 ;,_read
 
 .segment "CODE"
@@ -129,6 +133,16 @@ gets_end:
 .segment "CODE"
 
 	jsr mos_CallGetCh
+	ldx #$00
+	rts
+
+.endproc
+
+.proc _kbhit: near
+
+.segment "CODE"
+
+	jsr mos_KbHit
 	ldx #$00
 	rts
 

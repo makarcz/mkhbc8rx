@@ -79,7 +79,30 @@
  *  Decimal to hex/bin conversion.
  *  Copying RTC NV memory to RAM added. (optional argument to 'rnv' command.)
  *  Added optional arguments to 'sctr' command (timer monitoring in a loop)
- * 	
+ *
+ * 2/5/2018
+ *  Added KBHIT calls to rclk and sctr loops.
+ *  Added kbhit() function.
+ *  Function rclk now uses function kbhit(), while sctr uses macro KBHIT
+ *  (for testing purposes, will switch back to macro as it is for sure
+ *   faster and uses less memory than function).
+ *  Also added RX buffer flush using kbhit() at the initialization part of the
+ *  program in enhsh_banner() function.
+ *
+ *  Later I added kbhit() implementation in the library (mkhbcos_serial.s) and
+ *  commented impl. in this source code. Used it in all functions for testing
+ *  purposes. I will switch to macro impl. in future version, although the
+ *  assembly code impl. in mkhbcos_serial.s should be pretty efficient being
+ *  a __fastcall__ type function.
+ *  Added ability to interrupt from keyboard (KBHIT) also to pause_sec() and
+ *  lcd clock and memory dump functions.
+ *  Now user can press SPACE during long memory dump to pause listing.
+ *
+ *  ..........................................................................
+ *
+ *  BUGS:
+ *
+ *  ..........................................................................
  */
 
 #include <stdlib.h>
@@ -94,7 +117,7 @@
 
 #define IBUF1_SIZE      80
 #define IBUF2_SIZE      80
-#define IBUF3_SIZE      16 
+#define IBUF3_SIZE      32
 #define PROMPTBUF_SIZE  80
 #define RADIX_DEC       10
 #define RADIX_HEX       16
@@ -137,7 +160,7 @@ enum cmdcodes
 
 const int ver_major = 2;
 const int ver_minor = 6;
-const int ver_build = 0;
+const int ver_build = 7;
 
 int cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
@@ -225,6 +248,7 @@ void enhsh_lcdinit(void);
 int hexchar2int(char c);
 int power(int base, int exp);
 int hex2int(const char *hexstr);
+//int kbhit(void);
 void enhsh_initmem(void);
 void enhsh_rmemenh(void);
 void enhsh_date(unsigned char rdclk);
@@ -267,6 +291,9 @@ void pause_sec(uint16_t delay)
 	 	  ds1685_rdclock (&clkdata);
 	  }	
 	  nsec--;		
+    if (KBHIT) break; // must be able to interrupt from keyboard
+                      // remember to flush RX buffer vefore calling this
+                      // function
 	}
 }
 
@@ -545,6 +572,25 @@ int hex2int(const char *hexstr)
 	return ret;
 }
 
+//int g_KbHit;
+/*
+ * Check if character waits in buffer.
+ * Return it if so, otherwise return 0.
+ */
+/*****************
+int kbhit(void)
+{
+  int ret = 0;
+
+  __asm__("jsr %w", MOS_KBHIT);
+  __asm__("sta %v", g_KbHit);
+
+  ret = g_KbHit;
+
+  return ret;
+}
+******************/
+
 /*
  *
  * Initialize memory - command handler.
@@ -630,7 +676,8 @@ void enhsh_rmemenh(void)
 	if (enaddr == 0x0000) {
 		enaddr = staddr + 0x0100;
 	}
-
+  
+  while (KBHIT) getc(); // flush RX buffer
 	for (addr=staddr; addr<enaddr; addr+=16)
 	{
 		utoa(addr,ibuf1,RADIX_HEX);
@@ -665,6 +712,14 @@ void enhsh_rmemenh(void)
 		puts("\n\r");
 		if (0xffff - enaddr <= 0x0f && addr < staddr)
 			break;
+    if (KBHIT) {  // interrupt from keyboard
+      if (32 == getc()) { // if SPACE,
+        while (!KBHIT) /* wait for any keypress to continue */ ;
+        getc(); // consume the key
+      } else {  // if not SPACE, break (exit) the loop
+        break;
+      }
+    }
 	}
 }
 
@@ -765,6 +820,7 @@ void enhsh_sleep()
 	unsigned int sleptsec = 0, cmdarg = 0;
 	unsigned char currsec = 0;
 	cmdarg = atoi(prompt_buf+6);
+  while (KBHIT) getc(); // flush RX buffer
 	pause_sec(cmdarg);
 }
 
@@ -847,6 +903,7 @@ void enhsh_clock(void)
 	enhsh_date(2);
 	lcd_puts(ibuf1, lcdlinesel[1]); // output date part
 	date = clkdata.date;
+  while (KBHIT) getc(); // flush RX buffer
 	while(1)
 	{
 		enhsh_date(2);
@@ -857,7 +914,11 @@ void enhsh_clock(void)
 			date = clkdata.date;
 		}
 		lcd_puts(ibuf2, lcdlinesel[2]); // output time part
-		enhsh_pause(200);
+		pause_sec(1);
+    if (KBHIT) {  // interrupt from keyboard
+      getc();
+      break;
+    }
 	}
 #else
 	puts("LCD disabled.\n\r");
@@ -876,13 +937,20 @@ void enhsh_rclk(void)
    cmdarg = atoi(prompt_buf+5);
    /*enhsh_cls();*/
    ansi_cls();
+   //while (KBHIT) getc();  // flush rx buffer
+   while (kbhit()) getc();  // flush rx buffer
    while(secs < cmdarg)
    {
    	  /*ansi_crsr_home();*/
       enhsh_date(1);
       pause_sec(1);
       secs++;
-   	  ansi_set_cursor(1,1);      
+   	  ansi_set_cursor(1,1);
+      //if (KBHIT) break;
+      if (kbhit()) {
+        getc();
+        break;
+      }
    }
    ansi_set_cursor(1,3);
 }
@@ -1162,14 +1230,12 @@ void enh_shell(void)
 
 void enhsh_banner(void)
 {
-  int i;
 	//enhsh_cls();
   enhsh_pause(2);
+  while (kbhit()) getc(); // flush RX buffer
 	memset(prompt_buf,0,PROMPTBUF_SIZE);
-  for (i = 0; i < 20; i++) {
-	  puts("\n\r");
-  }
-  ansi_cls();
+  //ansi_cls();
+  puts("\n\r\n\r");
 	puts("Welcome to MKHBC-8-R2 M.O.S. Enhanced Shell.\n\r");
 	puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
 	puts("  'help' for guide.\n\r");
@@ -1220,6 +1286,8 @@ void enhsh_showtmct(void)
   puts("Delay: ");
   puts(itoa(delay, ibuf3, RADIX_DEC));
   puts(" seconds.\n\r");
+  //while (KBHIT) getc(); // flush rx buffer
+  while (kbhit()) getc(); // flush rx buffer
   for (i = 0; i < num; i++) { 
     tmr64 = *TIMER64HZ;
     strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
@@ -1227,6 +1295,11 @@ void enhsh_showtmct(void)
     strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_HEX));
     strcat(ibuf1, "\n\r");
     puts(ibuf1);
+    //if (KBHIT) break;
+    if (kbhit()) {
+      getc();
+      break;
+    }
     if (delay > 0) {
       pause_sec(delay);
     }
@@ -1278,8 +1351,8 @@ void enhsh_dec2hexbin()
   char *binval = ibuf2;
 
   if (strlen(prompt_buf) > 5) {
-    strcpy(hexval, utoa((unsigned int)atoi(prompt_buf+5), ibuf3, RADIX_HEX));
-    strcpy(binval, utoa((unsigned int)atoi(prompt_buf+5), ibuf3, RADIX_BIN));
+    strcpy(hexval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_HEX));
+    strcpy(binval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_BIN));
     puts("Decimal: ");
     puts(prompt_buf+5);
     puts("\n\r");

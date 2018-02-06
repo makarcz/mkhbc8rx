@@ -9,6 +9,9 @@
  * 1/19/2012:
  * 	Initial revision.
  *
+ * 2/5/2018
+ *  Added kbhit().
+ *
  */
 
 #ifndef MKHBCOS_SERIALIO
@@ -21,6 +24,7 @@ char*	__fastcall__	gets(char *s);
 int		__fastcall__	getchar(void);
 int		__fastcall__	getc(void);
 int		__fastcall__	fgetc(void);
+int     __fastcall__    kbhit(void);
 
 #define	ESC	0x1B
 

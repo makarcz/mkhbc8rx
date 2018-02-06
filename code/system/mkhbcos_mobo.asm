@@ -71,6 +71,10 @@
 ;   Added banked RAM registers and selection function.
 ;   Added banked RAM selection function to the kernel jump table.
 ;
+; 2018-02-05
+;   Added function KbHit implementation.
+;   Added jump entry in kernel to KbHit.
+;
 ;-------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -90,7 +94,7 @@
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 2
-VerMnt      = 2
+VerMnt      = 3
 
 ; 6502 CPU
 
@@ -1191,9 +1195,26 @@ GetCh:
 RomGetCh:
     ldx UartRxOutPt
     cpx UartRxInPt          ; If the in-ptr equals the out-ptr, queue is empty.
-    beq GetCh               ; Branch (wait) if queue is empty.
+    beq RomGetCh            ; Branch (wait) if queue is empty.
     lda UartRxQue,x         ; Get the character
     inc UartRxOutPt         ; Update out-ptr
+    rts
+
+;-------------------------------------------------------------------------------
+; Check if there is a character available in the input queue.
+; Return 0 in Acc if not, return character in Acc if there is one.
+; Do not update / modify input queue. (character will be still waiting to be
+; read with GetCh.)
+;-------------------------------------------------------------------------------
+
+KbHit:
+    lda #0
+    ldx UartRxOutPt
+    cpx UartRxInPt          ; If the in-ptr equals the out-ptr, queue is empty.
+    bne KbHit01             ; queue not empty
+    rts
+KbHit01:
+    lda UartRxQue,x
     rts
 
 ;-------------------------------------------------------------------------------
@@ -1930,6 +1951,10 @@ BankedRamSel:
 ;-------------------------------------------------------------------------------
 
 .segment "KERN"
+
+.ORG    $FFCC
+CallKbHit:
+    jmp KbHit
 
 .ORG    $FFCF
 CallBankRamSel:

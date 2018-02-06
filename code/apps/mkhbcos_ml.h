@@ -23,6 +23,11 @@
  *    Added remaining entries from MOS jump table.
  *    Type of TIMER64HZ changed from unsigned short to unsigned long.
  *
+ * 2018-02-05
+ *    Added jump address if MOS_KBHIT.
+ *    Added pointers to UART RX queue.
+ *    Added KBHIT macro
+ *
  */
 
 #ifndef MKHBCOS_ML
@@ -30,13 +35,17 @@
 
 // System variables:
 
-#define TIMER64HZ   ((unsigned long *)0x00E2)
-#define RAMBANKNUM  ((unsigned char *)0x00E6)
+#define TIMER64HZ   ((unsigned long *)0x00E2) // pointer to 4-byte counter
+#define RAMBANKNUM  ((unsigned char *)0x00E6) // pointer to RAM bank# register
+#define UARTRXINPT  ((unsigned char *)0x00F2) // ptr to beg. or UART RX queue
+#define UARTRXOUTPT ((unsigned char *)0x00F3) // ptr to end of UART RX queue
+#define KBHIT       (*UARTRXINPT != *UARTRXOUTPT) // KbHit as macro
 
 /* These calls are now in Kernel Jump Table.
  * No more need to change them after firmware code is changed.
  * They stay at the same addresses - guaranteed.
  */
+#define MOS_KBHIT         0xFFCC
 #define MOS_BANKEDRAMSEL  0xFFCF
 #define MOS_DS1685INIT    0xFFD2
 #define MOS_DS1685RDCLK   0xFFD5
