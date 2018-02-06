@@ -19,6 +19,7 @@ Derived work:
 		Chris Ward.	 (RTC DS1685 circuit, functions, LCD interface)
 		Peter Jennings.	 (Microchess)	
 		Bill O'Neill.	 (Tiny Basic port)
+		T. Pittman	 (TB Tiny Adventure Game)
 	
 	If I forgotten anybody or violated any copyright, please note that my intent was not
 	malicious. Please contact me: makarcz@yahoo.com, I will gladly correct any problems.
