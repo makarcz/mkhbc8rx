@@ -75,6 +75,9 @@
 ;   Added function KbHit implementation.
 ;   Added jump entry in kernel to KbHit.
 ;
+; 2018-02-06
+;   Minor code optimization.
+;
 ;-------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -94,7 +97,7 @@
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 2
-VerMnt      = 3
+VerMnt      = 4
 
 ; 6502 CPU
 
@@ -254,13 +257,12 @@ RamBankSwitch   = IO0
 RamBankNum      = $E6
 
 ; Customizable jump vectors
-; Program loaded and run in RAM can modify these vectors
+; Program can modify these vectors
 ; to drive custom I/O console hardware and attach/change
 ; handler to IRQ procedure. Interrupt flag should be
-; cleared before changes are applied and set when ready.
-; Custom IRQ handler routine should make a jump to standard
-; handler at the end. Custom I/O function routine should
-; end with RTS.
+; set before changes are applied and cleared when ready.
+; Custom IRQ handler routine should end with a jump to standard
+; handler. Custom I/O function routine should end with RTS.
 
 StoreAcc	= 	$11			; Temporary Accumulator store.
 IrqVect		=	$0012		; Customizable IRQ vector
@@ -353,11 +355,11 @@ MOSCmdNum=6
 NMIJUMP:
 
 	jmp	NMIPROC
-	
+
 RESJUMP:
 
 	jmp RESPROC
-	
+
 IRQJUMP:
 
 	jmp (IrqVect)
@@ -389,7 +391,7 @@ NMIPROC:
 
 ; Go to the NMI handler
     jmp NmiHandler
-	
+
 ;-------------------------------------------------------------------------------
 ; NMI handler.  This routine is a jump-point (not subroutine) called in response
 ; to an NMI event.  Theoretically the system is now in an ISR state, but MOS
@@ -434,7 +436,7 @@ NmiCancel:
 NmiCancelNoRoll:
     lda #0                  ; Clear flags
     pha                     ; Push flags so they'll be pulled by RTI
-	rti	
+	rti
 
 ;-------------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------
@@ -561,14 +563,14 @@ IrqDone:
 ;-------------------------------------------------------------------------------
 
 RESPROC:
-	
+
 	cld
     jmp Init6502
-	
+
 Init6502RetPt:
 
     jmp Init62256
-	
+
 Init62256RetPt:
 
     jsr InitMOS         ; Note, initialize MOS *before* the 6850!
@@ -660,7 +662,7 @@ UART_SET    = UART_N_8_1|UART_DIV_16
     lda UartCtRam           ; Always load the control byte image from RAM
     ora #UART_RXI_EN        ; Also enable Rx interrupt (no Tx IRQ at this time)
     sta UartCtRam
-    sta UartCt          
+    sta UartCt
     rts
 
 TxtInit6850:
@@ -944,7 +946,7 @@ MOSReadMemRow:
     jsr PutHex
     lda ArrayPtr3
     jsr PutHex
-    
+
     ldy #0
     sty Cnt1                ; Initialize column counter
 
@@ -987,7 +989,7 @@ MOSReadMemCont:
     jsr PutCh
     lda #$0A
     jsr PutCh
-    
+
     ; Do next row
     jmp MOSReadMemRow
 
@@ -1184,7 +1186,7 @@ GetLineFinish:
     ; This would be the place to implement a "moskey" command history program.
 
     rts
-    
+
 ;-------------------------------------------------------------------------------
 ; Wait until at least one character is available in the input queue, and return
 ; the first character in A
@@ -1356,7 +1358,7 @@ MOSRunDemoHackPt:           ; This is a hack entry point for the demo
     dex                     ; Decrement in-ptr back to where it was
     sta UartRxQue,x         ; Store char in the queue
     inc UartRxInPt          ; Now increment in-ptr for real
-    
+
 UartRecRts:
     rts
 
@@ -1441,7 +1443,7 @@ RegReportPutS:
 ;          Therefore reading from / writing to an address of the chip is not
 ;          an atomic operation - requires two steps - writing the address,
 ;          then reading or writing from / to that address.
-;          See WrRTC / RdRTC functions. 
+;          See WrRTC / RdRTC functions.
 ;-----------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------
 
@@ -1463,10 +1465,13 @@ DS1685Init:
 	sta RegC
 	; initialize control register A, switch to bank 1
 	lda RegA
-	ora #DSC_REGA_BANK1		; switch to bank 1
-	tax
-	lda #$0a
-	jsr WrRTC
+    jsr S2Bank1RTC001       ; switch to bank 1
+    ;----------------- this section replaced with above JSR call
+	;ora #DSC_REGA_BANK1		; switch to bank 1
+	;tax
+	;lda #$0a
+	;jsr WrRTC
+    ;----------------- end replaced section - to be removed
 	; initialize extended control register B
 	ldx RegXB
 	lda #$4b
@@ -1531,13 +1536,13 @@ DS1685ReadClock:
 
 binmoderead:
 	; binary mode read
-	
+
 	lda #$00		; load register address of seconds
 	jsr RdRTC		; read register value to Acc
 	and #%00111111	; mask 2 upper bits
     tsx
     sta $010A,x     ; store Acc (seconds) to allocated stack space
-	
+
 	lda #$02		; load register address of minutes
 	jsr RdRTC		; read register value to Acc
 	and #%00111111	; mask 2 upper bits
@@ -1644,7 +1649,7 @@ DS1685SetClock:
 	jsr WrRTC
 
 	tsx			; hours
-    lda $0108,x	
+    lda $0108,x
 	tax
 	lda #$04
 	jsr WrRTC
@@ -1920,6 +1925,10 @@ Switch2Bank1RTC:
 
 	lda #$0a			; get reg. A
 	jsr RdRTC
+
+S2Bank1RTC001:          ; this entry point is for if you already have RegA
+                        ; loaded in Acc
+
 	ora #DSC_REGA_BANK1	; switch to bank 1
 	tax
 	lda #$0a            ; write reg. A
@@ -1940,7 +1949,7 @@ BankedRamSel:
     sta RamBankNum
     sta RamBankSwitch
     rts
-    
+
 ;-------------------------------------------------------------------------------
 
 ;-------------------------------------------------------------------------------
