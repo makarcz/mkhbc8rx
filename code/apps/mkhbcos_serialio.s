@@ -1,39 +1,32 @@
-;------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ;
 ; File: 	mkhbcos_serialio.s
 ; Author:	Marek Karcz
-; Purpose:	Implement's serial console functions for MKHBCOS to be
-;			called from C programs (cc65).
+; Purpose:	Implement's serial console functions.
+;           This file is a part of MKHBCOS operating system programming API
+;           for MKHBC-8-Rx computer.
 ;
 ; Revision history:
 ;	2012-01-10:
 ;		Initial revision.
-;   
+;
 ;   2012-01-11:
 ;       Added several I/O routines.
 ;
 ;   2018-02-05
 ;       Added kbhit() impl.
 ;
-;------------------------------------------------------------------
+;   2018-02-11
+;       Replaced local MKHBCOS definitions with ones coming from
+;       "mkhbcos_ml.inc".
+;
+;-----------------------------------------------------------------------------
 
-; M.O.S. API defines (kernal)
-
-.define		mos_PromptLine	$80
-.define		mos_PromptLen	$D0
-.define 	mos_StrPtr		$E0
-.define		tmp_zpgPt		$F6
-.define		mos_CallGetCh	$FFED
-.define		mos_CallGets	$FFF3
-.define		mos_CallPutCh	$FFF0
-.define		mos_CallPuts	$FFF6
-.define     mos_KbHit       $FFCC
+.include "mkhbcos_ml.inc"
 
 .setcpu	"6502"
 .import ldaxysp,pushax,popax,pusha,popa
 .import incsp2
-
-.define		sp				$20
 
 ; code
 
@@ -55,7 +48,7 @@
 	rts
 
 .endproc
-	
+
 .proc _puts: near
 
 .segment "CODE"
@@ -91,7 +84,7 @@
 ; copy string to the return pointer location
 
 	ldy #$00
-	
+
 gets_l001:
 
 	lda mos_PromptLine,y

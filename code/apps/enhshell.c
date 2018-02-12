@@ -1,12 +1,17 @@
 /*
- * 
+ *
  * File:	enhshell.c
- * Purpose:	Code of enhanced shell for MKHBCOS.
+ * Purpose:	Code of shell with additional commands for MKHBCOS.
+ *          This file is a part of MKHBCOS operating system programming API
+ *          for MKHBC-8-Rx computer.
  * Author:	Marek Karcz
  * Created:	1/22/2012
  *
  * NOTE:
  *  GVIM: set tabstop=2 shiftwidth=2 expandtab
+ *  2/11/2018 - I switched to ATOM editor using language-65asm 5.0.0 package.
+ *              Soft TABS were setup with length=4. Therefore above settings
+ *              provided for GVIM may not work well anymore.
  *
  * To Do:
  *
@@ -48,10 +53,10 @@
  *
  * 2/12/2012
  *  Cosmetic.
- * 
+ *
  * 11/29/2015
  *  Added conditional code for LCD display.
- * 
+ *
  * 2/3/2016
  *  Added sleep and rclk commands.
  *
@@ -74,7 +79,7 @@
  *
  * 2/3/2018
  *  Periodically updated counter type changed from unsigned short to unsigned
- *  long. This counter will roll over in more than 2 years. 
+ *  long. This counter will roll over in more than 2 years.
  *  Banked RAM selection - command 'bank'.
  *  Decimal to hex/bin conversion.
  *  Copying RTC NV memory to RAM added. (optional argument to 'rnv' command.)
@@ -97,6 +102,10 @@
  *  Added ability to interrupt from keyboard (KBHIT) also to pause_sec() and
  *  lcd clock and memory dump functions.
  *  Now user can press SPACE during long memory dump to pause listing.
+ *
+ * 2/10/2018
+ *  Added checking of the flags of devices presence before using RTC
+ *  or RAM banking functions.
  *
  *  ..........................................................................
  *
@@ -131,11 +140,11 @@ enum cmdcodes
 	CMD_HELP,
 	CMD_EXIT,
 	CMD_CLS,
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	CMD_LCDINIT,
 	CMD_LCDPRINT,
 	CMD_LCDCLEAR,
-#endif	
+#endif
 	CMD_READMEM,
 	CMD_RMEMENH,	  // enhanced read memory
 	CMD_WRITEMEM,
@@ -160,7 +169,7 @@ enum cmdcodes
 
 const int ver_major = 2;
 const int ver_minor = 6;
-const int ver_build = 7;
+const int ver_build = 9;
 
 int cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
@@ -168,9 +177,9 @@ char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 #if defined(LCD_EN)
 const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
 #endif
-const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
+const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 					'a', 'b', 'c', 'd', 'e', 'f', 0};
-const char daysofweek[8][4] = 
+const char daysofweek[8][4] =
 {
 	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 };
@@ -180,7 +189,26 @@ const char monthnames[13][4] =
 	"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
-#if defined(LCD_EN)	
+enum eErrors {
+  ERROR_OK = 0,
+  ERROR_NORTC,
+  ERROR_NOEXTBRAM,
+  ERROR_BANKNUM,
+  ERROR_DECVALEXP,
+  ERROR_UNKNOWN
+};
+
+const char ga_errmsg[6][56] =
+{
+  "OK.",
+  "No RTC chip detected.",
+  "No extended RAM detected or extended RAM is not banked.",
+  "Bank# expected value: 0..7.",
+  "Expected decimal argument.",
+  "Unknown."
+};
+
+#if defined(LCD_EN)
 const char helptext[39][48] =
 #else
 const char helptext[35][48] =
@@ -188,11 +216,11 @@ const char helptext[35][48] =
 {
 	"\n\r",
 	"    cls : clear console.\n\r",
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	"   lcdi : initialize LCD.\n\r",
 	"   lcdc : clear LCD.\n\r",
 	"   lcdp : print to LCD.\n\r",
-#endif	
+#endif
 	"      r : read memory contents.\n\r",
 	"          r <hexaddr>[-hexaddr]\n\r",
 	"      w : write data to address.\n\r",
@@ -204,11 +232,11 @@ const char helptext[35][48] =
 	"   date : display date/time.\n\r",
 	"   time : set time.\n\r",
 	"  setdt : set date/time.\n\r",
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	"  clock : run LCD clock (reset to exit).\n\r",
-#endif	
+#endif
 	"  sleep : pause for # of seconds\n\r",
-	"          sleep <seconds>\n\r",	
+	"          sleep <seconds>\n\r",
 	"   rclk : run console clock for # of seconds\n\r",
 	"          rclk <seconds>\n\r",
 	"   dump : enhanced read memory/hex dump.\n\r",
@@ -266,8 +294,17 @@ void enhsh_showtmct(void);
 void enhsh_rambanksel(void);
 void enhsh_getrambank(void);
 void enhsh_dec2hexbin(void);
+void enhsh_prnerror(int errnum);
 
+/* print error message */
+void enhsh_prnerror(int errnum)
+{
+  puts("ERROR: ");
+  puts(ga_errmsg[errnum]);
+  puts("\r\n");
+}
 
+/* pause */
 void enhsh_pause(uint16_t delay)
 {
 	int i = 0;
@@ -280,23 +317,26 @@ void pause_sec(uint16_t delay)
 {
 	unsigned int currsec = 0, nsec = delay;
 
-	ds1685_rdclock (&clkdata);
-	while (nsec > 0) {
+  if (RTCDETECTED) {
+  	ds1685_rdclock (&clkdata);
+  	while (nsec > 0) {
 
-		currsec = clkdata.seconds;
-		/* wait 1 second */
-	  while (currsec == clkdata.seconds) {
+  		currsec = clkdata.seconds;
+  		/* wait 1 second */
+  	  while (currsec == clkdata.seconds) {
 
-	 	  enhsh_pause(200);
-	 	  ds1685_rdclock (&clkdata);
-	  }	
-	  nsec--;		
-    if (KBHIT) break; // must be able to interrupt from keyboard
-                      // remember to flush RX buffer vefore calling this
-                      // function
-	}
+  	 	  enhsh_pause(200);
+  	 	  ds1685_rdclock (&clkdata);
+  	  }
+  	  nsec--;
+      if (KBHIT) break; // must be able to interrupt from keyboard
+                        // remember to flush RX buffer vefore calling this
+                        // function
+  	}
+  }
 }
 
+/* get line of text from input */
 void enhsh_getline(void)
 {
 	memset(prompt_buf,0,PROMPTBUF_SIZE);
@@ -304,6 +344,7 @@ void enhsh_getline(void)
 	puts("\n\r");
 }
 
+/* parse the input buffer, set command code */
 void enhsh_parse(void)
 {
 	if (0 == strlen(prompt_buf))
@@ -312,13 +353,13 @@ void enhsh_parse(void)
 	}
 	else if (0 == strncmp(prompt_buf,"exit",4))
 	{
-		cmd_code = CMD_EXIT;	
+		cmd_code = CMD_EXIT;
 	}
 	else if (0 == strncmp(prompt_buf,"cls",3))
 	{
 		cmd_code = CMD_CLS;
 	}
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	else if (0 == strncmp(prompt_buf,"lcdi",4))
 	{
 		cmd_code = CMD_LCDINIT;
@@ -331,7 +372,7 @@ void enhsh_parse(void)
 	{
 		cmd_code = CMD_LCDCLEAR;
 	}
-#endif	
+#endif
 	else if (0 == strncmp(prompt_buf,"r ",2))
 	{
 		cmd_code = CMD_READMEM;
@@ -347,7 +388,7 @@ void enhsh_parse(void)
 	else if (0 == strncmp(prompt_buf,"i ",2))
 	{
 		cmd_code = CMD_INITMEM;
-	}	
+	}
 	else if (0 == strncmp(prompt_buf,"date",4))
 	{
 		cmd_code = CMD_DATE;
@@ -360,20 +401,20 @@ void enhsh_parse(void)
 	{
 		cmd_code = CMD_SETDTTM;
 	}
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	else if (0 == strncmp(prompt_buf,"clock",5))
 	{
 		cmd_code = CMD_CLOCK;
 	}
-#endif	
+#endif
 	else if (0 == strncmp(prompt_buf,"sleep ",6))
 	{
 		cmd_code = CMD_SLEEP;
-	}	
+	}
 	else if (0 == strncmp(prompt_buf,"rclk ",5))
 	{
 		cmd_code = CMD_RCLK;
-	}	
+	}
 	else if (0 == strncmp(prompt_buf,"x ",2))
 	{
 		cmd_code = CMD_EXECUTE;
@@ -414,13 +455,14 @@ void enhsh_parse(void)
 		cmd_code = CMD_UNKNOWN;
 }
 
+/* get text from console and print on LCD */
 void enhsh_lcdp(void)
 {
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	int l;
 	char c;
-	
-	puts("Line (0 - current, 1 - line #1, 2 - line #2): "); 
+
+	puts("Line (0 - current, 1 - line #1, 2 - line #2): ");
 	c = getchar();
 	ibuf1[0] = c; ibuf1[1] = 0;
 	puts("\n\r");
@@ -433,9 +475,10 @@ void enhsh_lcdp(void)
 	//	puts("Unable to complete request.\n\r");
 #else
 	puts("LCD is not enabled.\n\r");
-#endif	
+#endif
 }
 
+/* print help */
 void enhsh_help(void)
 {
 	unsigned char cont = 1, i = 0;
@@ -484,7 +527,7 @@ void enhsh_cls(void)
 
 void enhsh_lcdinit(void)
 {
-#if defined(LCD_EN)		
+#if defined(LCD_EN)
 	char ecans = 'n';
 	char ebans = 'n';
 
@@ -498,11 +541,11 @@ void enhsh_lcdinit(void)
 	lcd_cursorctrl(((ecans=='y')?1:0), ((ebans=='y')?1:0));
 #else
 	puts("LCD is not enabled.\n\r");
-#endif	
+#endif
 }
 
 /*
- * 
+ *
  * Convert single hexadecimal ascii representation
  * to an integer number.
  *
@@ -522,9 +565,9 @@ int hexchar2int(char c)
 }
 
 /*
- * 
+ *
  * Calculate integer power.
- * 
+ *
  */
 int power(int base, int exp)
 {
@@ -547,7 +590,7 @@ int power(int base, int exp)
 }
 
 /*
- * 
+ *
  * Convert ascii representation of hexadecimal
  * number to integer.
  *
@@ -568,7 +611,7 @@ int hex2int(const char *hexstr)
 		n = hexchar2int(c);
 		ret = ret + n*power(16,l-i-1);
 	}
-	
+
 	return ret;
 }
 
@@ -610,7 +653,7 @@ void enhsh_initmem(void)
 	while (*(prompt_buf+i) != 0) {
 		if (*(prompt_buf+i) == 32 || *(prompt_buf+i) == '-') {
 			*(prompt_buf+i) = 0;
-			i++; 
+			i++;
 			if (j == 0) j = i;
 			else {
 				k = i;
@@ -629,7 +672,7 @@ void enhsh_initmem(void)
 	for (addr=staddr; addr<enaddr; addr++)
 	{
 		POKE(addr,b);
-	}	
+	}
 }
 
 /*
@@ -672,11 +715,11 @@ void enhsh_rmemenh(void)
 		}
 		i++;
 	}
-	staddr = hex2int(prompt_buf+5);	
+	staddr = hex2int(prompt_buf+5);
 	if (enaddr == 0x0000) {
 		enaddr = staddr + 0x0100;
 	}
-  
+
   while (KBHIT) getc(); // flush RX buffer
 	for (addr=staddr; addr<enaddr; addr+=16)
 	{
@@ -690,7 +733,7 @@ void enhsh_rmemenh(void)
 		puts(" : ");
 		if (addr > 0xBFFF && addr < 0xC800) {
 			puts ("dump blocked in I/O mapped range\n\r");
-			continue;	
+			continue;
 		}
 		for (i=0; i<16; i++)
 		{
@@ -739,6 +782,11 @@ void enhsh_rmemenh(void)
  */
 void enhsh_date(unsigned char rdclk)
 {
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
+
 	if(rdclk)
 		ds1685_rdclock (&clkdata);
 
@@ -746,7 +794,7 @@ void enhsh_date(unsigned char rdclk)
 		return;
 
 	memset(ibuf1, 0, IBUF1_SIZE);
-	memset(ibuf2, 0, IBUF2_SIZE);	
+	memset(ibuf2, 0, IBUF2_SIZE);
 	memset(ibuf3, 0, IBUF3_SIZE);
 	if (rdclk < 2) strcpy(ibuf1, "Date: ");
 	if (clkdata.dayofweek > 0 && clkdata.dayofweek < 8)
@@ -788,7 +836,7 @@ void enhsh_date(unsigned char rdclk)
 		strcat(ibuf1, "\r\n");
 		puts(ibuf1);
 	}
-	
+
 	if (rdclk < 2) strcpy(ibuf2, "Time: ");
 	else strcpy(ibuf2, "  ");
 	if (clkdata.hours < 10)
@@ -835,7 +883,12 @@ void enhsh_sleep()
 void enhsh_time(unsigned char setdt)
 {
 	uint16_t n = 0;
-	
+
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
+
 	if (setdt)
 	{
 		puts("Enter the century (19,20): ");
@@ -896,7 +949,7 @@ void enhsh_time(unsigned char setdt)
  */
 void enhsh_clock(void)
 {
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	unsigned char date;
 
 	lcd_clear();
@@ -922,7 +975,7 @@ void enhsh_clock(void)
 	}
 #else
 	puts("LCD disabled.\n\r");
-#endif	
+#endif
 }
 
 /*
@@ -934,6 +987,12 @@ void enhsh_clock(void)
 void enhsh_rclk(void)
 {
    unsigned int cmdarg = 0, secs = 0;
+
+   if (!RTCDETECTED) {
+     enhsh_prnerror(ERROR_NORTC);
+     return;
+   }
+
    cmdarg = atoi(prompt_buf+5);
    /*enhsh_cls();*/
    ansi_cls();
@@ -968,10 +1027,15 @@ void enhsh_rnv(void)
   unsigned char b     = 0x00;
   unsigned char bank  = 0;
   unsigned char offs  = 0;
-  unsigned char offs2 = 0; 
+  unsigned char offs2 = 0;
   uint16_t addr       = 0x000e;
   uint16_t ramaddr    = 0x0000;
   int i, len;
+
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
 
   len = strlen(prompt_buf); // length of prompt before cut off at 1=st arg.
   // find beginning of 1-st arg. (bank #)
@@ -985,7 +1049,7 @@ void enhsh_rnv(void)
     offs2++;
 	}
   prompt_buf[offs2++] = 0;
-	bank = atoi(prompt_buf+offs);	
+	bank = atoi(prompt_buf+offs);
   if (bank) addr=0;
   // optional argument, hexaddr
   // if full len of prompt greater than prompt cut at end of 1-st arg.
@@ -1053,6 +1117,11 @@ void enhsh_wnv(void)
   uint16_t nvaddr = 0x000e;
   int i,n;
 
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
+
 	i=3;
   /* find index of bank value start */
 	while (prompt_buf[i] == 32) {
@@ -1068,7 +1137,7 @@ void enhsh_wnv(void)
 	while (prompt_buf[i] == 32) {
     i++;
 	}
-	addr = hex2int(prompt_buf+i);	
+	addr = hex2int(prompt_buf+i);
   bank = atoi(prompt_buf+n);
   puts("RAM address: ");
   puts(prompt_buf+i);
@@ -1089,10 +1158,15 @@ void enhsh_wnv(void)
  */
 void enhsh_rtci(void)
 {
-	ds1685_init(DSC_REGB_SQWE | DSC_REGB_DM | DSC_REGB_24o12 | DSC_REGB_PIE, 
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
+
+	ds1685_init(DSC_REGB_SQWE | DSC_REGB_DM | DSC_REGB_24o12 | DSC_REGB_PIE,
 				/* Square Wave output enable, binary mode, 24h format, periodic interrupt */
 				DSC_REGA_OSCEN | 0x0A, /* oscillator ON, 64 Hz on SQWE */
-				0xB0, /* AUX battery enable, 12.5pF crystal, 
+				0xB0, /* AUX battery enable, 12.5pF crystal,
 						 E32K=0 - SQWE pin frequency set by RS3..RS0,
              CS=1 - 12.5pF crystal,
              RCE=1 - RAM clear pin /RCLR enabled */
@@ -1122,7 +1196,7 @@ int enhsh_exec(void)
 			puts("Bye!\n\r");
 			ret = 0;
 			break;
-#if defined(LCD_EN)			
+#if defined(LCD_EN)
 		case CMD_LCDINIT:
 			enhsh_lcdinit();
 			break;
@@ -1132,7 +1206,7 @@ int enhsh_exec(void)
 		case CMD_LCDCLEAR:
 			lcd_clear();
 			break;
-#endif			
+#endif
 		case CMD_READMEM:
 			enhsh_readmem();
 			break;
@@ -1157,11 +1231,11 @@ int enhsh_exec(void)
 		case CMD_SETDTTM:
 			enhsh_time(1);
 			break;
-#if defined(LCD_EN)			
+#if defined(LCD_EN)
 		case CMD_CLOCK:
 			enhsh_clock();
 			break;
-#endif			
+#endif
 		case CMD_SLEEP:
 		    enhsh_sleep();
 		    break;
@@ -1207,12 +1281,12 @@ int enhsh_exec(void)
 void enh_shell(void)
 {
 	int cont = 1;
-	
+
 	/**** this is now in EPROM called when system boots
-	ds1685_init(DSC_REGB_SQWE | DSC_REGB_DM | DSC_REGB_24o12 | DSC_REGB_PIE, 
+	ds1685_init(DSC_REGB_SQWE | DSC_REGB_DM | DSC_REGB_24o12 | DSC_REGB_PIE,
 				// Square Wave output enable, binary mode, 24h format, periodic int.
 				DSC_REGA_OSCEN | 0x0A, // oscillator ON, 64 Hz on SQWE
-				0xB0, // AUX battery enable, 12.5pF crystal, 
+				0xB0, // AUX battery enable, 12.5pF crystal,
 						  // E32K=0 - SQWE pin frequency set by RS3..RS0,
               // CS=1 - 12.5pF crystal,
               // RCE=1 - RAM clear pin /RCLR enabled
@@ -1240,13 +1314,13 @@ void enhsh_banner(void)
 	puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
 	puts("  'help' for guide.\n\r");
 	puts("  'exit' to quit.\n\r\n\r");
-#if defined(LCD_EN)	
+#if defined(LCD_EN)
 	LCD_INIT;
 	lcd_puts("   MKHBC-8-R2   ", LCD_LINE_1);
 	lcd_puts(" 6502 @ 1.8 Mhz ", LCD_LINE_2);
 #else
 	puts("LCD disabled.\n\r");
-#endif	
+#endif
 }
 
 /*
@@ -1264,6 +1338,11 @@ void enhsh_showtmct(void)
   int num = 1;
   int delay = 0;
   int i = 0;
+
+  if (!RTCDETECTED) {
+      enhsh_prnerror(ERROR_NORTC);
+      return;
+  }
 
   if (strlen(prompt_buf) > 4) {
 	  while (prompt_buf[offs] == 32) {
@@ -1288,7 +1367,7 @@ void enhsh_showtmct(void)
   puts(" seconds.\n\r");
   //while (KBHIT) getc(); // flush rx buffer
   while (kbhit()) getc(); // flush rx buffer
-  for (i = 0; i < num; i++) { 
+  for (i = 0; i < num; i++) {
     tmr64 = *TIMER64HZ;
     strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
     strcat(ibuf1, " $");
@@ -1313,15 +1392,21 @@ int g_bnum;
 void enhsh_rambanksel(void)
 {
   g_bnum = -1;
+
+  if (!EXTRAMDETECTED || !EXTRAMBANKED) {
+    enhsh_prnerror(ERROR_NOEXTBRAM);
+    return;
+  }
+
   if (strlen(prompt_buf) > 5) {
 
     g_bnum = atoi(prompt_buf+5);
-  
+
     if (g_bnum >= 0 && g_bnum < 8) {
       __asm__("lda %v", g_bnum);
       __asm__("jsr %w", MOS_BANKEDRAMSEL);
     } else {
-      puts("ERROR: Bank# expected value: 0..7\n\r");
+      enhsh_prnerror(ERROR_BANKNUM);
     }
   }
 
@@ -1334,6 +1419,11 @@ void enhsh_rambanksel(void)
 void enhsh_getrambank(void)
 {
   unsigned char rambank = 0;
+
+  if (!EXTRAMDETECTED || !EXTRAMBANKED) {
+    enhsh_prnerror(ERROR_NOEXTBRAM);
+    return;
+  }
 
   rambank = *RAMBANKNUM;
 
@@ -1363,7 +1453,7 @@ void enhsh_dec2hexbin()
     puts(binval);
     puts("\n\r");
   } else {
-    puts("ERROR: Expected decimal argument.\n\r");
+    enhsh_prnerror(ERROR_DECVALEXP);
   }
 }
 
@@ -1373,4 +1463,3 @@ int main(void)
 	enh_shell();
 	return 0;
 }
-

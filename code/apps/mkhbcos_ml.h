@@ -9,7 +9,7 @@
  *  GVIM: set tabstop=2 shiftwidth=2 expandtab
  *
  * Revision history:
- * 
+ *
  * 2015-11-29
  *    Updated addresses for new version.
  *
@@ -28,6 +28,11 @@
  *    Added pointers to UART RX queue.
  *    Added KBHIT macro
  *
+ * 2018-02-10
+ *    Added DEVICESDET register and masing flags for it.
+ *    Added macros for RTC detected, extended RAM detected and Banked RAM
+ *    detected.
+ *
  */
 
 #ifndef MKHBCOS_ML
@@ -37,9 +42,21 @@
 
 #define TIMER64HZ   ((unsigned long *)0x00E2) // pointer to 4-byte counter
 #define RAMBANKNUM  ((unsigned char *)0x00E6) // pointer to RAM bank# register
+#define DEVICESDET  ((unsigned char *)0x00E7) // pointer to detected devices
+                                              // flags
 #define UARTRXINPT  ((unsigned char *)0x00F2) // ptr to beg. or UART RX queue
 #define UARTRXOUTPT ((unsigned char *)0x00F3) // ptr to end of UART RX queue
-#define KBHIT       (*UARTRXINPT != *UARTRXOUTPT) // KbHit as macro
+
+// masking flags and their complements
+
+#define DEVPRESENT_RTC      0x80
+#define DEVPRESENT_NORTC    0x7F
+#define DEVPRESENT_EXTRAM   0x40
+#define DEVPRESENT_NOEXTRAM 0xBF
+#define DEVPRESENT_BANKRAM  0x20
+#define DEVPRESENT_NOBRAM   0xDF
+#define DEVPRESENT_UART     0x10
+#define DEVPRESENT_NOUART   0xEF
 
 /* These calls are now in Kernel Jump Table.
  * No more need to change them after firmware code is changed.
@@ -53,9 +70,19 @@
 #define MOS_DS1685SETTM   0xFFDB
 #define MOS_DS1685WRRAM   0xFFDE
 #define MOS_DS1685RDRAM   0xFFE1
-#define MOS_PROCRMEM	    0xFFE4
-#define MOS_PROCWMEM	    0xFFE7
-#define MOS_PROCEXEC	    0xFFEA
+#define MOS_PROCRMEM	  0xFFE4
+#define MOS_PROCWMEM	  0xFFE7
+#define MOS_PROCEXEC	  0xFFEA
+
+// Macros
+
+#define KBHIT       (*UARTRXINPT != *UARTRXOUTPT) // KbHit as macro
+#define RTCDETECTED (*DEVICESDET & DEVPRESENT_RTC) // true if RTC chip was
+                                                   // detected by MOS
+#define EXTRAMDETECTED (*DEVICESDET & DEVPRESENT_EXTRAM) // true if extended
+                                                         // RAM was detected
+                                                         // by MOS
+#define EXTRAMBANKED   (*DEVICESDET & DEVPRESENT_BANKRAM) // true if extended
+                                                          // RAM is banked
 
 #endif
-

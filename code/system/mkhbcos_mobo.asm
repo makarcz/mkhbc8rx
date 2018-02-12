@@ -78,6 +78,10 @@
 ; 2018-02-06
 ;   Minor code optimization.
 ;
+; 2018-02-10
+;   Added detection of RTC chip and extended (banked) RAM in $8000 - $BFFF
+;   range.
+;
 ;-------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -94,10 +98,13 @@
 ; Defines
 ;-------------------------------------------------------------------------------
 
+; Uncomment statement below to add compilation of extra debugging messages.
+;Debug       = 1
+
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
-VerMin      = 2
-VerMnt      = 4
+VerMin      = 3
+VerMnt      = 0
 
 ; 6502 CPU
 
@@ -129,13 +136,14 @@ IO7 = IO6+256   ; $C700 - $C7FF
 UartBase    = IO4           ; NOTE: having this configured automatically would
                             ;       be ideal (plug&play), since the serial
                             ;       interface goes in the expansion slot, but
-                            ;       for now it is hardcoded
+                            ;       for now it is hardcoded and mandatory to
+                            ;       have UART chip at IO4 slot.
 UartCt      = UartBase+$0   ; Control register
 UartSt      = UartBase+$0   ; Status register
 UartTx      = UartBase+$1   ; Transmit buffer register
 UartRx      = UartBase+$1   ; Receive buffer register
 
-; Control register bit fields
+; UART control register bit fields
 UART_RXI_EN = %10000000     ; Receive interrupt enable
 UART_TXI_EN = %00100000     ; Transmit interrupt enable, /rts low
 UART_TXI_DS = %10011111     ; Transmit interrupt disable, /rts low (AND)
@@ -143,7 +151,7 @@ UART_N_8_1  = %00010100     ; No parity, 8 bit data, 1 stop (see docs)
 UART_DIV_16 = %00000001     ; Divide tx & rx clock by 16, sample middle
 UART_RESET  = %00000011     ; Master reset
 
-; Status register bit fields
+; UART status register bit fields
 UART_RDRF   = %00000001     ; Receive Data Register Full
 UART_TDRE   = %00000010     ; Transmit Data Register Empty
 UART_DCD    = %00000100     ; Data Carrier Detect line
@@ -189,7 +197,7 @@ UartRxOutPt = $F3           ; Rx tail pointer, for chars taken from buf
 UartCtRam   = $F4           ; Control register in RAM
 UartStRam   = $F5           ; Status register in RAM
 
-; DS1685 (RTC) registers and variables
+; MOS DS1685 (RTC) registers and variables
 
 RTC         = IO1   ; base address of RTC chip DS-1685
 DSCALADDR   = RTC
@@ -249,14 +257,14 @@ DSC_REGC_UF     =   %00010000
 
 DSC_REGB_UNSET  =	%01111111
 
-; Banked memory bank switching register and shadow reg. in RAM.
+; MOS Banked memory bank switching register and shadow reg. in RAM.
 ; Write only, value $00 .. $07 (bank#).
 ; Selects RAM Bank in address range $8000 .. $BFFF.
 
 RamBankSwitch   = IO0
 RamBankNum      = $E6
 
-; Customizable jump vectors
+; MOS Customizable jump vectors
 ; Program can modify these vectors
 ; to drive custom I/O console hardware and attach/change
 ; handler to IRQ procedure. Interrupt flag should be
@@ -271,18 +279,38 @@ PutChVect	=	$0016		; Custom PutCh function jump vector
 GetsVect	=	$0018		; Custom Gets function jump vector
 PutsVect	=	$001a		; Custom Puts function jump vector
 
+; MOS device detection flags.
+
+DetectedDevices     =   $E7
+
+DEVPRESENT_RTC      =   %10000000
+DEVPRESENT_NORTC    =   %01111111
+DEVPRESENT_EXTRAM   =   %01000000
+DEVPRESENT_NOEXTRAM =   $10111111
+DEVPRESENT_BANKRAM  =   %00100000
+DEVPRESENT_NOBRAM   =   %11011111
+DEVPRESENT_UART     =   %00010000
+DEVPRESENT_NOUART   =   %11101111
+DEVNOEXTRAM         =   %10011111   ; alias for
+                                    ; DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
+
 .ORG RomBase
 
     ; Header
 TxtHeader:
-	.BYTE	"Welcome to MKHBC-8-R2, MOS6502 based system.",     $0d,$0a
+	.BYTE	"Welcome to MKHBC-8-R2, MOS 6502 system.",          $0d,$0a
     .BYTE   "(C) 2012-2018 Marek Karcz. All rights reserved.",  $0d,$0a
 	.BYTE   "Based on following original work:",                $0d,$0a
     .BYTE   "6502 SBC Meadow Operating System 1.02",            $0D,$0A
     .BYTE   "(C) 1993-2002 Scott Chidester",                    $0d,$0a
-	.BYTE	"MKHBC OS "
+	.BYTE	"MKHBCOS "
+.ifdef Debug
+    .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt,".DBG"
+.else
     .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
+.endif
     .BYTE   ", motherboard variant."
+TxtDoubleLineFeed:
     .BYTE   $0D,$0A,$0D,$0A,0
 
     ; This causes an attempt to "type" the binary file in MS-DOS to stop here.
@@ -317,6 +345,46 @@ TxtNoFmt:
 
 TxtNmiEvent:
     .BYTE   $0D,$0A,"NMI event.",$0D,$0A,0
+
+TxtRTCDevice:
+    .BYTE   "RTC device DS-1685 ",0
+
+TxtExtRAM:
+    .BYTE   "Extended RAM in $8000-$BFFF range ",0
+
+TxtFound:
+    .BYTE   "found.",$0D,$0A,0
+
+TxtNotFound:
+    .BYTE   "not found.",$0D,$0A,0
+
+TxtBanked:
+    .BYTE   "is banked.",$0D,$0A,0
+
+TxtNotBanked:
+    .BYTE   "is not banked.",$0D,$0A,0
+
+.ifdef Debug
+
+TxtDetectBRAM:
+    .BYTE   "Detecting extended and banked RAM ...",$0D,$0A,0
+
+TxtDetectRTC:
+    .BYTE   "Detecting RTC chip ...",$0D,$0A,0
+
+TxtInitComplete:
+    .BYTE   "Initialization completed. Enabling interrupts ...",$0D,$0A,0
+
+TxtDeviceDetected:
+    .BYTE   "Device detected.",$0D,$0A,0
+
+TxtDeviceNotDetected:
+    .BYTE   "Device not detected.",$0D,$0A,0
+
+TxtDetectUart:
+    .BYTE   "Detecting UART chip ...",$0D,$0A,0
+
+.endif
 
 TxtRegReport:
     .BYTE   "PC:",0," SR:",0," A:",0," X:",0," Y:",0," SP:",0
@@ -478,9 +546,16 @@ SrcIrqLine:
 ;       checking for IRQ source will change (simplify) significantly
 ; NOTE: Currently UART 6850 and RTC DS-1685 are the only IRQ sources.
 
+    lda #DEVPRESENT_RTC
+    bit DetectedDevices
+    beq IRQRTCNotPresent    ; RTC chip was not detected
     lda #$0C                ; Get status from DS1685 (RTC)
     jsr RdRTC               ; Read RegC to clear IRQ flags and for later check
     sta RegC                ; store in RAM
+IRQRTCNotPresent:
+    lda #DEVPRESENT_UART
+    bit DetectedDevices
+    beq IrqChkNxt01         ; UART chip not detected
     lda UartSt              ; Get status from 6850
     sta UartStRam           ; Store in MOS variable in RAM
     and #UART_IRQ           ; check the IRQ bit in status reg.
@@ -503,6 +578,9 @@ IrqChkNxt01:
 ;
 ;   [... and so on ...]
 
+    lda #DEVPRESENT_RTC
+    bit DetectedDevices
+    beq IrqChkNxt02         ; RTC chip is not present
     ; check RTC (DS1685) status (stored in RegC)
     lda RegC
     and #DSC_REGC_IQRF      ; check interrupt request flag
@@ -573,11 +651,29 @@ Init6502RetPt:
 
 Init62256RetPt:
 
-    jsr InitMOS         ; Note, initialize MOS *before* the 6850!
-    jsr Init6850        ; This sets some vital MOS variables.
+    jsr InitMOS             ; Note, initialize MOS *before* the 6850!
+    lda #DEVPRESENT_UART
+    sta DetectedDevices     ; for now UART is mandatory, assume it is present
+    jsr Init6850            ; This sets some vital MOS variables.
     jsr InitUARTISR
-    jsr InitBankedRam   ; Initialize banked RAM registers.
-    jsr InitDS1685      ; Initialize RTC
+    jsr InitBankedRam       ; Initialize banked RAM registers.
+.ifdef Debug
+    jsr DetectBRAMMsg
+.endif
+    jsr DetectExtRAM
+.ifdef Debug
+    lda #DEVPRESENT_BANKRAM
+    bit DetectedDevices
+    beq PrnDevNotDetected
+    jsr DeviceDetectedMsg
+    jmp Cont001
+PrnDevNotDetected:
+    jsr DeviceNotDetectedMsg
+Cont001:
+.endif
+    jsr InitBankedRam   ; Re-initialize banked RAM registers
+                        ; (DetectExtRAM switches bank)
+    jsr InitDS1685      ; Initialize RTC (it also detects RTC chip)
 
 	; Initialize custom IRQ and I/O jump vectors.
 
@@ -602,13 +698,178 @@ Init62256RetPt:
 	lda #>RomPuts
 	sta PutsVect+1
 
+.ifdef Debug
+    ; this is fake, just checking if UART present flag did not get reset
+    jsr DetectUartMsg
+    lda #DEVPRESENT_UART
+    bit DetectedDevices
+    bne Cont002
+    jsr DeviceNotDetectedMsg
+    jmp InitCompleted
+Cont002:
+    jsr DeviceDetectedMsg
     ; Done with init; enable interrupts and goto prompt
+InitCompleted:
+    jsr InitCompleteMsg
+.endif
     cli
+    jsr ReportDetectDevices ; produce boot time report of
+                            ; detected / undetected hardware
+    lda #<TxtDoubleLineFeed
+    sta StrPtr
+    lda #>TxtDoubleLineFeed
+    sta StrPtr+1
+    jsr Puts
     jmp MOSPrompt
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+; Produce report of detected or undetected hardware.
+;-----------------------------------------------------------------------------
+ReportDetectDevices:
+    lda #<TxtRTCDevice
+    sta StrPtr
+    lda #>TxtRTCDevice
+    sta StrPtr+1
+    jsr Puts
+    lda #DEVPRESENT_RTC
+    bit DetectedDevices
+    bne ReportRTCFound
+    ; RTC found bit not set.
+    lda #<TxtNotFound
+    sta StrPtr
+    lda #>TxtNotFound
+    sta StrPtr+1
+    jsr Puts
+    jmp ReportCheckExtRam
+ReportRTCFound:
+    lda #<TxtFound
+    sta StrPtr
+    lda #>TxtFound
+    sta StrPtr+1
+    jsr Puts
+ReportCheckExtRam:
+    lda #<TxtExtRAM
+    sta StrPtr
+    lda #>TxtExtRAM
+    sta StrPtr+1
+    jsr Puts
+    lda #DEVPRESENT_EXTRAM
+    bit DetectedDevices
+    beq ReportExtRamNotFound
+    ; Extended RAM found.
+    lda #<TxtFound
+    sta StrPtr
+    lda #>TxtFound
+    sta StrPtr+1
+    jsr Puts
+    lda #<TxtExtRAM
+    sta StrPtr
+    lda #>TxtExtRAM
+    sta StrPtr+1
+    jsr Puts
+    lda #DEVPRESENT_BANKRAM
+    bit DetectedDevices
+    bne ReportExtRAMBanked
+    ; Extended RAM is not banked.
+    lda #<TxtNotBanked
+    sta StrPtr
+    lda #>TxtNotBanked
+    sta StrPtr+1
+    jsr Puts
+    rts
+ReportExtRamNotFound:
+    lda #<TxtNotFound
+    sta StrPtr
+    lda #>TxtNotFound
+    sta StrPtr+1
+    jsr Puts
+    rts
+ReportExtRAMBanked:
+    lda #<TxtBanked
+    sta StrPtr
+    lda #>TxtBanked
+    sta StrPtr+1
+    jsr Puts
+    rts
+
+;-----------------------------------------------------------------------------
+; Detect extended RAM in $8000 - $BFFF range. Check if banked.
+;-----------------------------------------------------------------------------
+DetectExtRAM:
+    ; check if write / read possible in select addresses in extended RAM range
+    lda #$00            ; switch to bank #0 (we don't know yet if banking is
+                        ; possible but that's fine, we check the bank
+                        ; switching later on)
+    jsr BankedRamSel
+    lda #$01
+    sta $8000
+    lda $8000
+    cmp #$01
+    bne DER01           ; write / read test failed
+    lda #$02
+    sta $90ff
+    lda $90ff
+    cmp #$02
+    bne DER01           ; write / read test failed
+    lda #$03
+    sta $bfff
+    lda $bfff
+    cmp #$03
+    bne DER01           ; write / read test failed
+    lda DetectedDevices     ; write / read test succeeded, set extended RAM
+                            ; device bit
+    ora #DEVPRESENT_EXTRAM
+    sta DetectedDevices
+    ; -- check if banked --
+    ; Switch to bank #1 and see if there are the same values present at
+    ; addresses examined in previous step. If any values are different,
+    ; check write / read operation to confirm. If all values are the same,
+    ; there is no banking.
+    lda #$01
+    jsr BankedRamSel
+    lda $8000
+    cmp #$01
+    bne DER02
+    lda $90ff
+    cmp #$02
+    bne DER02
+    lda $bfff
+    cmp #$03
+    bne DER02
+    ; all values seem to be the same as in bank #0, so there is no banking
+DER01:
+    rts
+DER02:
+    ; some values in bank #1 are different than in bank #0
+    ; now we need to confirm that banking indeed works
+    ; we are still in bank #1 at this point
+    ; perform write / read test
+    lda #$11
+    sta $8000
+    lda $8000
+    cmp #$11
+    bne DER03   ; something is not right, write / read test did not pass
+    lda #$00    ; write / read test passed, switch to bank #0
+    jsr BankedRamSel
+    lda $8000   ; examine previously written value
+    cmp #$01
+    bne DER03   ; something is not right, value in bank #0 written in previous
+                ; test step was not preserved
+    ; test succeeded, extended RAM is banked
+    lda DetectedDevices
+    ora #DEVPRESENT_BANKRAM
+    sta DetectedDevices
+    rts
+; tests failed, clear extended RAM and banked RAM devices bits
+DER03:
+    lda DetectedDevices
+    and #DEVNOEXTRAM
+    sta DetectedDevices
+    rts
+
+;-----------------------------------------------------------------------------
 ; 6502 MPU initialization
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 
 ; Note: Can't be a subroutine because stack pointer is cleared.
 
@@ -623,13 +884,13 @@ Init6502:
     sei                     ; Disable interrupts
     jmp Init6502RetPt
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; 62256 RAM Initialization
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 
-; Note: Can't be a subroutine because stack is cleared. Also this will appear to
-; clear its own indirect pointer while clearing the zero page, but that's OK
-; because the pointer will contain zero anyway to point to zero page
+; Note: Can't be a subroutine because stack is cleared. Also this will appear
+; to clear its own indirect pointer while clearing the zero page, but that's
+; OK because the pointer will contain zero anyway to point to zero page
 
 Init62256:
     lda #>RamEnd            ; Point to last page in RAM
@@ -641,26 +902,30 @@ Init62256Loop:
     sta ($0),y              ; Clear top half of zero page
     dey
     bne Init62256Loop
-Init62256NextPage:            ; Adjust page pointer at end
+Init62256NextPage:           ; Adjust page pointer at end
     dec $1
-    bpl Init62256Loop        ; BPL works for RAM less than 32K; clears page zero
-    sta $1                  ; Clear the pointer
+    bpl Init62256Loop        ; BPL works for RAM less than 32K; clears page
+                             ; zero
+    sta $1                   ; Clear the pointer
     jmp Init62256RetPt
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; 6850 ACIA (UART) Initialization
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 Init6850:
 UART_SET    = UART_N_8_1|UART_DIV_16
     lda #UART_RESET         ; Reset ACIA
     sta UartCtRam           ; Always save a copy of the register in RAM
-    sta UartCt              ; Set RAM copy first because hardware generates IRQs
+    sta UartCt              ; Set RAM copy first because hardware generates
+                            ; IRQs
     lda #UART_SET           ; Set N-8-1, Div 16 (overwrite old control byte)
     sta UartCtRam
     sta UartCt
-    jsr Init6850Msg         ; This displays a message in polled form, for debug
+    jsr Init6850Msg         ; This displays a message in polled form, for
+                            ; debug
     lda UartCtRam           ; Always load the control byte image from RAM
-    ora #UART_RXI_EN        ; Also enable Rx interrupt (no Tx IRQ at this time)
+    ora #UART_RXI_EN        ; Also enable Rx interrupt (no Tx IRQ at this
+                            ; time)
     sta UartCtRam
     sta UartCt
     rts
@@ -669,10 +934,10 @@ TxtInit6850:
 .BYTE   $0D,$0A,"6850 Init.",$0D,$0A,0
 
     ; This will be used for development, and can be removed afterward. It
-    ; displays a short message using polling.  In case the first revision of my
-    ; hardware and/or software doesn't display anything, this will at least help
-    ; to narrow the problem down to either an interrupt issue, or an address/
-    ; data/control line issue.
+    ; displays a short message using polling.  In case the first revision of
+    ; my hardware and/or software doesn't display anything, this will at least
+    ; help to narrow the problem down to either an interrupt issue, or an
+    ; address/data/control line issue.
 Init6850Msg:
     ldx #0
 Init6850MsgLoop:
@@ -690,9 +955,120 @@ Init6850MsgLoop:
 Init6850MsgDone:
     rts
 
-;-------------------------------------------------------------------------------
+.ifdef Debug
+; Using polling display message of detecting RTC chip.
+DetectRTCMsg:
+    ldx #0
+DetectRTCMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq DetectRTCMsgLoop     ; Loop if not empty
+
+    lda TxtDetectRTC,x       ; Get character
+    beq DetectRTCMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp DetectRTCMsgLoop     ; Loop back to wait for empty buffer
+
+DetectRTCMsgDone:
+    rts
+
+; Using polling display message of detecting banked RAM.
+DetectBRAMMsg:
+    ldx #0
+DetectBRAMMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq DetectBRAMMsgLoop     ; Loop if not empty
+
+    lda TxtDetectBRAM,x       ; Get character
+    beq DetectBRAMMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp DetectBRAMMsgLoop     ; Loop back to wait for empty buffer
+
+DetectBRAMMsgDone:
+    rts
+
+; Using polling display message of competed initialization.
+InitCompleteMsg:
+    ldx #0
+InitCompleteMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq InitCompleteMsgLoop     ; Loop if not empty
+
+    lda TxtInitComplete,x       ; Get character
+    beq InitComleteMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp InitCompleteMsgLoop     ; Loop back to wait for empty buffer
+
+InitComleteMsgDone:
+    rts
+
+; Using polling display message of device detected.
+DeviceDetectedMsg:
+    ldx #0
+DeviceDetectedMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq DeviceDetectedMsgLoop     ; Loop if not empty
+
+    lda TxtDeviceDetected,x       ; Get character
+    beq DeviceDetectedMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp DeviceDetectedMsgLoop     ; Loop back to wait for empty buffer
+
+DeviceDetectedMsgDone:
+    rts
+
+; Using polling display message of device not detected.
+DeviceNotDetectedMsg:
+    ldx #0
+DeviceNotDetectedMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq DeviceNotDetectedMsgLoop     ; Loop if not empty
+
+    lda TxtDeviceNotDetected,x       ; Get character
+    beq DeviceNotDetectedMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp DeviceNotDetectedMsgLoop     ; Loop back to wait for empty buffer
+
+DeviceNotDetectedMsgDone:
+    rts
+
+; Using polling display message of detecting UART.
+DetectUartMsg:
+    ldx #0
+DetectUartMsgLoop:
+    lda UartSt              ; Get UART status
+    sta UartStRam
+    and #UART_TDRE          ; Check transmit data register empty bit
+    beq DetectUartMsgLoop     ; Loop if not empty
+
+    lda TxtDetectUart,x       ; Get character
+    beq DetectUartMsgDone     ; If it's zero, we're done
+    sta UartTx              ; Transmit
+    inx
+    jmp DetectUartMsgLoop     ; Loop back to wait for empty buffer
+
+DetectUartMsgDone:
+    rts
+
+.endif  ; Debug
+
+;-----------------------------------------------------------------------------
 ; MOS Initialization (clear MOS variables)
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 InitMOS:
     lda #$0
     ldx #$7F                ; Do half a page ($7F to $00 inclusive)
@@ -702,9 +1078,9 @@ InitMOSLoop:
     bpl InitMOSLoop
     rts
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; UART ISR Initialization
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 InitUARTISR:
     lda #0
     sta UartTxInPt
@@ -713,10 +1089,24 @@ InitUARTISR:
     sta UartRxOutPt
     rts
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; RTC Initialization, disable interrupts when calling this function
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 InitDS1685:
+    ; *** detect RTC chip
+.ifdef Debug
+    jsr DetectRTCMsg
+.endif
+    jsr DetectDS1685
+    bne InitDS1685OK        ; different than 0, device detected
+.ifdef Debug
+    jsr DeviceNotDetectedMsg
+.endif
+    rts                     ; not detected, return
+InitDS1685OK:
+.ifdef Debug
+    jsr DeviceDetectedMsg
+.endif
     ; *** setup shadow RTC registers in RAM
     lda #0
     sta Timer64Hz
@@ -740,11 +1130,30 @@ InitDS1685:
     jsr DS1685Init
     rts
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+; Detect the presence of DS1685 RTC device / chip.
+; return 0 in Acc if not detected, non-zero otherwise
+;-----------------------------------------------------------------------------
+DetectDS1685:
+    jsr Switch2Bank1RTC
+    lda #$40
+    jsr RdRTC
+    cmp #$71
+    beq DetectDS1685OK
+    lda #$00            ; device not detected
+    rts
+DetectDS1685OK:
+    jsr Switch2Bank0RTC
+    lda DetectedDevices
+    ora #DEVPRESENT_RTC
+    sta DetectedDevices
+    rts
+
+;-----------------------------------------------------------------------------
 ; Initialize Banked RAM.
 ; Memory itself is not initialized.
 ; Bank #0 is selected and the bank# is put in the RAM register RamBankNum
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 InitBankedRam:
     lda #$00
     sta RamBankNum
