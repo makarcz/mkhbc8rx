@@ -1,5 +1,5 @@
-;----------------------------------------------------------------------------------
-; Tiny Basic port to MKHBC-8-R1 6502 computer
+;-----------------------------------------------------------------------------
+; Tiny Basic port to MKHBC-8-Rx 6502 computer
 ; by Marek Karcz 2012.
 ;
 ; Based on the work by:
@@ -33,14 +33,16 @@
 ;
 ;
 ; Next steps:
-;        Write a BREAK routine that will enable a break if any charater is typed at the console
+;        Write a BREAK routine that will enable a break if any charater is
+;        typed at the console
 ;        More comments to document this code
-;        Investigate using assembler variables and directives to make it easy to re-locate this code
+;        Investigate using assembler variables and directives to make it easy
+;        to re-locate this code
 ;
 ; ============ END OF ORIGINAL HEADER =========================================
 ;
-; Revision history (MKHBC-8-R1 port):
-; 
+; Revision history (MKHBC-8-Rx port):
+;
 ; 1/4/2012:
 ;    TB port created.
 ;
@@ -71,17 +73,22 @@
 ;    Moved BASIC programs memory to $6000 - $BFFF.
 ;    Fixed move cursor home code.
 ;
+; 2/13/2018
+;    Changes related to recent changes in MKHBCOS API.
+;
 ;--------------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
 ;--------------------------------------------------------------------------------------
+
+.include "mkhbcos_ml.inc"   ; MKHBCOS API definitions
 
 .segment "BASIC"
 
 ;
 ; Tiny Basic starts here
 ;
-    .org      $4400                 ; Start of Basic.  First 1K of ROM is shaded by I/O on the OMS-02
+.org      $4400                     ; Start of Basic.
 
 SOBAS:
 
@@ -98,12 +105,12 @@ C_C1     =     $C1               	;
 C_C2     =     $C2               	;
 C_C6     =     $C6               	;
 
-SR_V_L   =     SOBAS + $1E         	; Base address for subroutine vector lo byte
-SR_V_H   =     SOBAS + $1F         	; Base address for subroutine vector hi byte
+SR_V_L   =     SOBAS + $1E       ; Base address for subroutine vector lo byte
+SR_V_H   =     SOBAS + $1F       ; Base address for subroutine vector hi byte
 
 CV:       jmp      COLD_S            ; Cold start vector
 WV:       jmp      WARM_S            ; Warm start vector
-IN_V:     jmp      RCCHR             ; Input routine address. 
+IN_V:     jmp      RCCHR             ; Input routine address.
 OUT_V:    jmp      SNDCHR            ; Output routine address.
 BREAK:    nop                        ; Begin dummy break routine
           clc                        ; Clear the carry flag
@@ -111,21 +118,23 @@ BREAK:    nop                        ; Begin dummy break routine
 ;
 ; Some codes
 ;
-;BSC:      .byte $5f                   	; Backspace code
-BSC:      .byte $08                   	; Backspace code
-LSC:      .byte $18                   	; Line cancel code
-PCC:      .byte $80                   	; Pad character control
-TMC:      .byte $00                   	; Tape mode control
-SSS:      .byte $20                   	; Spare Stack size. (was $04 but documentation suggests $20 ?)
+;BSC:      .byte $5f            ; Backspace code
+BSC:      .byte $08             ; Backspace code
+LSC:      .byte $18             ; Line cancel code
+PCC:      .byte $80             ; Pad character control
+TMC:      .byte $00             ; Tape mode control
+SSS:      .byte $20             ; Spare Stack size. (was $04 but documentation
+                                ; suggests $20 ?)
 
 ;
 ; Code fragment
 ; Seems to store or retreive a byte to/from memory and the accumulator
 ; ---
-; M.K.: I think this code it is used from Tiny Basic programs by calling USR to store/retrieve
-;       data (since TB does not support arrays, this is one way to emulate them).
+; M.K.: I think this code it is used from Tiny Basic programs by calling USR to
+; store/retrieve data (since TB does not support arrays, this is one way to
+; emulate them).
 ; This location is at exactly 20 bytes distance from the start of TB code.
-; TB programs typically make USR calls to locations: 
+; TB programs typically make USR calls to locations:
 ; SOBAS+20
 ; SOBAS+24
 ; E.g:
@@ -136,32 +145,40 @@ SSS:      .byte $20                   	; Spare Stack size. (was $04 but document
 ; Store Z in location V(I,J)
 ; LET Z=USR(S+24,V+B*I+J,Z)
 ; From TB documentation:
-;   For your convenience two subroutines have been included in the TINY BASIC interpreter to access memory.  
-;   If S contains the address of the beginning of the TINY BASIC interpreter (256 for standard 6800, 512 
-;   for standard 6502, etc.), then location S+20 (hex 0114) is the entry point of a subroutine to read one 
-;   byte from the memory address in the index register, and location S+24 (hex 0118) is the entry point of 
-;   a subroutine to store one byte into memory. 
+;   For your convenience two subroutines have been included in the TINY BASIC
+;   interpreter to access memory.
+;   If S contains the address of the beginning of the TINY BASIC interpreter
+;   (256 for standard 6800, 512 for standard 6502, etc.), then location S+20
+;   (hex 0114) is the entry point of a subroutine to read one byte from the
+;   memory address in the index register, and location S+24 (hex 0118) is the
+;   entry point of a subroutine to store one byte into memory.
 ;-------------------------------------------------
 ;      USR (address)
 ;      USR (address,Xreg)
 ;      USR (address,Xreg,Areg)
 ;
-;   This function is actually a machine-language subroutine call to the address in the first argument.  
-;   If the second argument is included the index registers contain that value on entry to the subroutine, 
-;   with the most significant part in X.  If the third argument is included, the accumulators contain that 
-;   value on entry to the subroutine, with the least significant part in A.  On exit, the value in the 
-;   Accumulators (for the 6800; A and Y for the 6502) becomes the value of the function, with the least 
-;   significant part in A.  All three arguments are evaluated as normal expressions.
-;   It should be noted that machine language subroutine addresses are 16-bit Binary numbers.  TINY BASIC 
-;   evaluates all expressions to 16-bit binary numbers, so any valid expression may be used to define a 
-;   subroutine address.  However, most addresses are expressed in hexadecimal whereas TINY BASIC only accepts 
-;   numerical constants in decimal.  Thus to jump to a subroutine at hex address 40AF, you must code USR(16559). 
-;   Hex address FFB5 is similarly 65461 in decimal, though the equivalent (-75) may be easier to use. 
-; 
+;   This function is actually a machine-language subroutine call to the address
+;   in the first argument.
+;   If the second argument is included the index registers contain that value
+;   on entry to the subroutine, with the most significant part in X.  If the
+;   third argument is included, the accumulators contain that value on entry to
+;   the subroutine, with the least significant part in A.  On exit, the value
+;   in the Accumulators (for the 6800; A and Y for the 6502) becomes the value
+;   of the function, with the least significant part in A.  All three arguments
+;   are evaluated as normal expressions.
+;   It should be noted that machine language subroutine addresses are 16-bit
+;   Binary numbers.  TINY BASIC evaluates all expressions to 16-bit binary
+;   numbers, so any valid expression may be used to define a subroutine
+;   address.  However, most addresses are expressed in hexadecimal whereas TINY
+;   BASIC only accepts numerical constants in decimal. Thus to jump to a
+;   subroutine at hex address 40AF, you must code USR(16559).
+;   Hex address FFB5 is similarly 65461 in decimal, though the equivalent (-75)
+;   may be easier to use.
+;
 
 OneBytePeek:
 
-         stx $C3		; read one byte from memory address in the index register
+         stx $C3	; read one byte from memory address in the index register
          bcc LBL008
 
 OneBytePoke:
@@ -173,9 +190,9 @@ LBL008:  lda (C_C2),Y
          ldy #$00
          rts
 
-	
+
 	 ; These seem to be addresses associated with the IL branch instructions
-     ;.byte $62,$15, $64,$15, $D8,$15, $05,$16, $33,$16, $FD,$15    	
+     ;.byte $62,$15, $64,$15, $D8,$15, $05,$16, $33,$16, $FD,$15
 	 .byte <JUMP01,>JUMP01
 	 .byte <LBL027,>LBL027
 	 .byte <JUMP02,>JUMP02
@@ -194,7 +211,7 @@ LBL008:  lda (C_C2),Y
 	 ; without updating these
 	 ; END OF ORIGINAL COMMENT
 
-     ;.byte $9F,$17, $42,$1B, $3F,$1B, $7A,$17, $FC,$18, $95,$17, $9F,$17, $9F,$17 
+     ;.byte $9F,$17, $42,$1B, $3F,$1B, $7A,$17, $FC,$18, $95,$17, $9F,$17, $9F,$17
 	 .byte <LBL067,>LBL067
 	 .byte <LBL132,>LBL132
 	 .byte <JUMP06,>JUMP06
@@ -203,8 +220,8 @@ LBL008:  lda (C_C2),Y
 	 .byte <LBL097,>LBL097
 	 .byte <LBL067,>LBL067
 	 .byte <LBL067,>LBL067
-	 
-     ;.byte $BD,$1A, $C1,$1A, $8A,$1A, $9B,$1A, $E9,$1A, $61,$17, $51,$17, $41,$1A 
+
+     ;.byte $BD,$1A, $C1,$1A, $8A,$1A, $9B,$1A, $E9,$1A, $61,$17, $51,$17, $41,$1A
 	 .byte <JUMP08,>JUMP08
 	 .byte <JUMP09,>JUMP09
 	 .byte <JUMP10,>JUMP10
@@ -213,8 +230,8 @@ LBL008:  lda (C_C2),Y
 	 .byte <JUMP13,>JUMP13
 	 .byte <JUMP14,>JUMP14
 	 .byte <LBL071,>LBL071
-	 
-     ;.byte $52,$1A, $4F,$1A, $62,$1A, $E7,$19, $CD,$16, $06,$17, $9F,$17, $15,$18 
+
+     ;.byte $52,$1A, $4F,$1A, $62,$1A, $E7,$19, $CD,$16, $06,$17, $9F,$17, $15,$18
 	 .byte <JUMP15,>JUMP15
 	 .byte <JUMP16,>JUMP16
 	 .byte <JUMP17,>JUMP17
@@ -223,8 +240,8 @@ LBL008:  lda (C_C2),Y
 	 .byte <JUMP20,>JUMP20
 	 .byte <LBL067,>LBL067
 	 .byte <JUMP21,>JUMP21
-	 
-     ;.byte $A7,$17, $B7,$16, $BF,$16, $83,$18, $A1,$16, $9F,$17, $9F,$17, $A8,$18 
+
+     ;.byte $A7,$17, $B7,$16, $BF,$16, $83,$18, $A1,$16, $9F,$17, $9F,$17, $A8,$18
 	 .byte <JUMP22,>JUMP22
 	 .byte <JUMP23,>JUMP23
 	 .byte <LBL047,>LBL047
@@ -233,8 +250,8 @@ LBL008:  lda (C_C2),Y
 	 .byte <LBL067,>LBL067
 	 .byte <LBL067,>LBL067
 	 .byte <JUMP24,>JUMP24
-	 
-     ;.byte $4F,$1B, $4D,$1B, $07,$19, $AA,$14, $37,$17, $BD,$14, $1B,$1B, $B1,$1A 
+
+     ;.byte $4F,$1B, $4D,$1B, $07,$19, $AA,$14, $37,$17, $BD,$14, $1B,$1B, $B1,$1A
      .byte <JUMP25,>JUMP25
 	 .byte <JUMP26,>JUMP26
 	 .byte <JUMP27,>JUMP27
@@ -247,7 +264,7 @@ LBL008:  lda (C_C2),Y
      .byte $20,$41, $54,$20     ; No idea ????
 
      .byte $80                  ; No idea
-         
+
 LBL002:  .byte <ILTBL	;$70                  ; $70 - lo byte of IL address
 LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address
 
@@ -261,58 +278,69 @@ LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address
 ; that can be loaded and used simultaneously with TB.
 ; $8000 to the end of writable memory is the BASIC memory space.
 ;
-COLD_S:  lda #$00                   ; Load accumulator with lo byte of lower and upper prg memory limits
-         sta $20                    ; Store in $20
-         sta $22                    ; Store in $22
-         lda #$60                   ; Load accumulator with hi byte of lower and upper prg memory limits
-         sta $21                    ; Store in $21
-         sta $23                    ; Store in $23
-		 ; NOTE: $22,$23 vector will be updated by routine below to be the upper RAM limit for TB.
+COLD_S:  lda #$00       ; Load accumulator with lo byte of lower and upper
+                        ; prg memory limits
+         sta $20        ; Store in $20
+         sta $22        ; Store in $22
+         lda #$60       ; Load accumulator with hi byte of lower and upper
+                        ; prg memory limits
+         sta $21        ; Store in $21
+         sta $23        ; Store in $23
+		 ; NOTE: $22,$23 vector will be updated by routine below to be the
+         ;       upper RAM limit for TB.
 ;
 ;
 ; Begin test for free ram
-; As a result, memory locations $20,$21 will contain lo,hi byte order address of lower RAM boundary
-; and $22,$23 upper RAM boundary respectively.
+; As a result, memory locations $20,$21 will contain lo,hi byte order address
+; of lower RAM boundary and $22,$23 upper RAM boundary respectively.
 ;
-         
-         ldy #$01                   ; Load register Y with $01
-MEM_T:   lda (C_22),Y               ; Load accumulator With the contents of a byte of memory
-         tax                        ; Save it to X
-         eor #$FF                   ; Next 4 instuctions test to see if this memeory location
-         sta (C_22),Y               ; is ram by trying to write something new to it - new value
-         cmp (C_22),Y               ; gets created by XORing the old value with $FF - store the
-         php                        ; result of the test on the stack to look at later
-         txa                        ; Retrieve the old memory value
-         sta (C_22),Y               ; Put it back where it came from
-         inc $22                    ; Increment $22 (for next memory location)
-         bne SKP_PI                 ; Goto SKP_PI if we don't need to increment page
-         inc $23                    ; Increment $23 (for next memory page)
-SKP_PI:  plp                        ; Now look at the result of the memory test
-         beq MEM_T                  ; Go test the next memory location if the last one was ram
-         dey                        ; If last memory location did not test as ram, decrement Y (should be $00 now)
-MEM_T2:  cld                        ; Make sure we're not in decimal mode
-         lda $20                    ; Load up the low-order by of the start of free ram
-         adc SSS                    ; Add to the spare stack size
-         sta $24                    ; Store the result in $0024
-         tya                        ; Retrieve Y
-         adc $21                    ; And add it to the high order byte of the start of free ram (this does not look right)
-         sta $25                    ; Store the result in $0025
-         tya                        ; Retrieve Y again
-         sta (C_20),Y               ; Store A in the first byte of program memory
-         iny                        ; Increment Y
-         sta (C_20),Y               ; Store A in the second byte of program memory
+
+         ldy #$01           ; Load register Y with $01
+MEM_T:   lda (C_22),Y       ; Load accumulator With the contents of a byte of
+                            ; memory
+         tax                ; Save it to X
+         eor #$FF           ; Next 4 instuctions test to see if this memeory
+                            ;location
+         sta (C_22),Y       ; is ram by trying to write something new to it -
+                            ; new value
+         cmp (C_22),Y       ; gets created by XORing the old value with $FF -
+                            ; store the
+         php                ; result of the test on the stack to look at later
+         txa                ; Retrieve the old memory value
+         sta (C_22),Y       ; Put it back where it came from
+         inc $22            ; Increment $22 (for next memory location)
+         bne SKP_PI         ; Goto SKP_PI if we don't need to increment page
+         inc $23            ; Increment $23 (for next memory page)
+SKP_PI:  plp                ; Now look at the result of the memory test
+         beq MEM_T          ; Go test the next memory location if the last one
+                            ; was ram
+         dey                ; If last memory location did not test as ram,
+                            ; decrement Y (should be $00 now)
+MEM_T2:  cld                ; Make sure we're not in decimal mode
+         lda $20            ; Load up the low-order by of the start of free ram
+         adc SSS            ; Add to the spare stack size
+         sta $24            ; Store the result in $0024
+         tya                ; Retrieve Y
+         adc $21            ; And add it to the high order byte of the start of
+                            ; free ram (this does not look right)
+         sta $25            ; Store the result in $0025
+         tya                ; Retrieve Y again
+         sta (C_20),Y       ; Store A in the first byte of program memory
+         iny                ; Increment Y
+         sta (C_20),Y       ; Store A in the second byte of program memory
 ;
 ;Begin Warm Start;
 ;
 WARM_S:  lda #$00
-		 sta $C000					; Set memory bank to 0. (could have been disturbed by free RAM test)
+		 jsr mos_BankedRamSel	; Set memory bank to 0.
+                                ; (could have been disturbed by free RAM test)
 		 lda $22
          sta $C6
          sta $26
          lda $23
          sta $C7
          sta $27
-         jsr LBL001                 ; Go print CR, LF and pad charachters
+         jsr LBL001             ; Go print CR, LF and pad charachters
 LBL014:  lda LBL002
          sta $2A
          lda LBL003
@@ -327,33 +355,35 @@ LBL014:  lda LBL002
          dex
          txs
 LBL006:  cld
-         jsr LBL004                 ; Go read a byte from the TBIL table
+         jsr LBL004             ; Go read a byte from the TBIL table
          jsr LBL005
          jmp LBL006
 ;
 ;
 ;
-         .byte $83                  ; No idea about this
-         .byte $65                  ; No idea about this
+         .byte $83              ; No idea about this
+         .byte $65              ; No idea about this
 ;
 ;
 ; Routine to service the TBIL Instructions
 ;
-LBL005:  cmp #$30                   ;
-         bcs LBL011                 ; If it's $30 or higher, it's a Branch or Jump - go handle it
-         cmp #$08                   ; 
-         bcc LBL007                 ; If it's less than $08 it's a stack exchange - go handle it
-         asl                        ; Multiply the OP code by 2 
-         tax                        ; Transfer it to X
-LBL022:  lda SR_V_H,X               ; Get the hi byte of the OP Code handling routine
-         pha                        ; and save it on the stack
-         lda SR_V_L,X               ; Get the lo byte
-         pha                        ; and save it on the stack
-         php                        ; save the processor status too
-         rti                        ; now go execute the OP Code handling routine
+LBL005:  cmp #$30
+         bcs LBL011           ; If it's $30 or higher, it's a Branch or Jump
+                              ; - go handle it
+         cmp #$08
+         bcc LBL007           ; If it's less than $08 it's a stack exchange
+                              ; - go handle it
+         asl                  ; Multiply the OP code by 2
+         tax                  ; Transfer it to X
+LBL022:  lda SR_V_H,X         ; Get the hi byte of the OP Code handling routine
+         pha                  ; and save it on the stack
+         lda SR_V_L,X         ; Get the lo byte
+         pha                  ; and save it on the stack
+         php                  ; save the processor status too
+         rti                  ; now go execute the OP Code handling routine
 ;
 ;
-; Routine to handle the stack exchange 
+; Routine to handle the stack exchange
 ;
 LBL007:  adc $C1
          tax
@@ -370,7 +400,7 @@ LBL007:  adc $C1
 LBL015:  jsr LBL001                 ; Go print CR, LF and pad charachters
          lda #$21                   ; Load an ASCII DC2
          jsr OUT_V                  ; Go print it
-         lda $2A                    ; Load the current TBIL pointer (lo) 
+         lda $2A                    ; Load the current TBIL pointer (lo)
          sec                        ; Set the carry flag
          sbc LBL002                 ; Subtract the TBIL table origin (lo)
          tax                        ; Move the difference to X
@@ -594,8 +624,9 @@ LBL041:  rts
 ;
 ;
 LBL043:  jsr LBL042
-LBL013:  jsr LBL004                 ; Entry point for TBIL PC (print literal) - Go read a byte from the TBIL table
-         bpl LBL043                 ; 
+LBL013:  jsr LBL004                 ; Entry point for TBIL PC (print literal) -
+                                    ; Go read a byte from the TBIL table
+         bpl LBL043                 ;
 LBL042:  inc $BF
          bmi LBL044
          jmp OUT_V                  ; Go print it
@@ -642,13 +673,13 @@ LBL054:  lsr $02,X
 LBL049:  lsr $02,X
 LBL053:  lsr $02,X
          bcc LBL050
-LBL004:  ldy #$00                   ; Read a byte from the TBIL Table
-         lda (C_2A),Y               ;
-         inc $2A                    ; Increment TBIL Table pointer as required
-         bne LBL051                 ;
-         inc $2B                    ;
-LBL051:  ora #$00                   ; Check for $00 and set the 'Z' flag acordingly
-LBL050:  rts                        ; Return
+LBL004:  ldy #$00               ; Read a byte from the TBIL Table
+         lda (C_2A),Y           ;
+         inc $2A                ; Increment TBIL Table pointer as required
+         bne LBL051             ;
+         inc $2B                ;
+LBL051:  ora #$00               ; Check for $00 and set the 'Z' flag acordingly
+LBL050:  rts                    ; Return
 ;
 ;
 ;
@@ -866,7 +897,7 @@ LBL081:  lda $BF
 LBL001:  lda #$0D                   ; Load up a CR
          jsr OUT_V                  ; Go print it
          lda PCC                    ; Load the pad character code
-         and #$7F                   ; Test to see - 
+         and #$7F                   ; Test to see -
          sta $BF                    ; how many pad charachters to print
          beq LBL086                 ; Skip if 0
 LBL088:  jsr LBL087                 ; Go print pad charcter
@@ -1279,46 +1310,45 @@ LBL134:  jmp OUT_V                  ; Go print it
 ;
 ; TBIL Tables
 ;
-ILTBL:   .byte $24, $3A, $91, $27, $10, $E1, $59, $C5, $2A, $56, $10, $11, $2C, $8B, $4C
-         .byte $45, $D4, $A0, $80, $BD, $30, $BC, $E0, $13, $1D, $94, $47, $CF, $88, $54
-         .byte $CF, $30, $BC, $E0, $10, $11, $16, $80, $53, $55, $C2, $30, $BC, $E0, $14
-         .byte $16, $90, $50, $D2, $83, $49, $4E, $D4, $E5, $71, $88, $BB, $E1, $1D, $8F
-         .byte $A2, $21, $58, $6F, $83, $AC, $22, $55, $83, $BA, $24, $93, $E0, $23, $1D
-         .byte $30, $BC, $20, $48, $91, $49, $C6, $30, $BC, $31, $34, $30, $BC, $84, $54
-         .byte $48, $45, $CE, $1C, $1D, $38, $0D, $9A, $49, $4E, $50, $55, $D4, $A0, $10
-         .byte $E7, $24, $3F, $20, $91, $27, $E1, $59, $81, $AC, $30, $BC, $13, $11, $82
-         .byte $AC, $4D, $E0, $1D, $89, $52, $45, $54, $55, $52, $CE, $E0, $15, $1D, $85
-         .byte $45, $4E, $C4, $E0, $2D, $98, $4C, $49, $53, $D4, $EC, $24, $00, $00, $00
-         .byte $00, $0A, $80, $1F, $24, $93, $23, $1D, $30, $BC, $E1, $50, $80, $AC, $59
-         .byte $85, $52, $55, $CE, $38, $0A, $86, $43, $4C, $45, $41, $D2, $2B, $84, $52
-         .byte $45, $CD, $1D, $A0, $80, $BD, $38, $14, $85, $AD, $30, $D3, $17, $64, $81
-         .byte $AB, $30, $D3, $85, $AB, $30, $D3, $18, $5A, $85, $AD, $30, $D3, $19, $54
-         .byte $2F, $30, $E2, $85, $AA, $30, $E2, $1A, $5A, $85, $AF, $30, $E2, $1B, $54
-         .byte $2F, $98, $52, $4E, $C4, $0A, $80, $80, $12, $0A, $09, $29, $1A, $0A, $1A
-         .byte $85, $18, $13, $09, $80, $12, $01, $0B, $31, $30, $61, $72, $0B, $04, $02
-         .byte $03, $05, $03, $1B, $1A, $19, $0B, $09, $06, $0A, $00, $00, $1C, $17, $2F
-         .byte $8F, $55, $53, $D2, $80, $A8, $30, $BC, $31, $2A, $31, $2A, $80, $A9, $2E
-         .byte $2F, $A2, $12, $2F, $C1, $2F, $80, $A8, $30, $BC, $80, $A9, $2F, $83, $AC
-         .byte $38, $BC, $0B, $2F, $80, $A8, $52, $2F, $84, $BD, $09, $02, $2F, $8E, $BC
-         .byte $84, $BD, $09, $93, $2F, $84, $BE, $09, $05, $2F, $09, $91, $2F, $80, $BE
-         .byte $84, $BD, $09, $06, $2F, $84, $BC, $09, $95, $2F, $09, $04, $2F, $00, $00
-         .byte $00
+ILTBL:
+.byte $24, $3A, $91, $27, $10, $E1, $59, $C5, $2A, $56, $10, $11, $2C, $8B, $4C
+.byte $45, $D4, $A0, $80, $BD, $30, $BC, $E0, $13, $1D, $94, $47, $CF, $88, $54
+.byte $CF, $30, $BC, $E0, $10, $11, $16, $80, $53, $55, $C2, $30, $BC, $E0, $14
+.byte $16, $90, $50, $D2, $83, $49, $4E, $D4, $E5, $71, $88, $BB, $E1, $1D, $8F
+.byte $A2, $21, $58, $6F, $83, $AC, $22, $55, $83, $BA, $24, $93, $E0, $23, $1D
+.byte $30, $BC, $20, $48, $91, $49, $C6, $30, $BC, $31, $34, $30, $BC, $84, $54
+.byte $48, $45, $CE, $1C, $1D, $38, $0D, $9A, $49, $4E, $50, $55, $D4, $A0, $10
+.byte $E7, $24, $3F, $20, $91, $27, $E1, $59, $81, $AC, $30, $BC, $13, $11, $82
+.byte $AC, $4D, $E0, $1D, $89, $52, $45, $54, $55, $52, $CE, $E0, $15, $1D, $85
+.byte $45, $4E, $C4, $E0, $2D, $98, $4C, $49, $53, $D4, $EC, $24, $00, $00, $00
+.byte $00, $0A, $80, $1F, $24, $93, $23, $1D, $30, $BC, $E1, $50, $80, $AC, $59
+.byte $85, $52, $55, $CE, $38, $0A, $86, $43, $4C, $45, $41, $D2, $2B, $84, $52
+.byte $45, $CD, $1D, $A0, $80, $BD, $38, $14, $85, $AD, $30, $D3, $17, $64, $81
+.byte $AB, $30, $D3, $85, $AB, $30, $D3, $18, $5A, $85, $AD, $30, $D3, $19, $54
+.byte $2F, $30, $E2, $85, $AA, $30, $E2, $1A, $5A, $85, $AF, $30, $E2, $1B, $54
+.byte $2F, $98, $52, $4E, $C4, $0A, $80, $80, $12, $0A, $09, $29, $1A, $0A, $1A
+.byte $85, $18, $13, $09, $80, $12, $01, $0B, $31, $30, $61, $72, $0B, $04, $02
+.byte $03, $05, $03, $1B, $1A, $19, $0B, $09, $06, $0A, $00, $00, $1C, $17, $2F
+.byte $8F, $55, $53, $D2, $80, $A8, $30, $BC, $31, $2A, $31, $2A, $80, $A9, $2E
+.byte $2F, $A2, $12, $2F, $C1, $2F, $80, $A8, $30, $BC, $80, $A9, $2F, $83, $AC
+.byte $38, $BC, $0B, $2F, $80, $A8, $52, $2F, $84, $BD, $09, $02, $2F, $8E, $BC
+.byte $84, $BD, $09, $93, $2F, $84, $BE, $09, $05, $2F, $09, $91, $2F, $80, $BE
+.byte $84, $BD, $09, $06, $2F, $84, $BC, $09, $95, $2F, $09, $04, $2F, $00, $00
+.byte $00
 ;
 ; End of Tiny Basic
 
 
 .segment "MAIN"
 
-         .org $4CF0    ; Address of main program
-
-; Code needs work below here, BIOS must be changed for MKHBC-8-R1
+.org $4CF0    ; Address of main program
 
 ;FBLK:
 ;
 ; Set some symbols
 ;
 ;ACIARW   = $1200                    ; Base address of ACIA
-;ACIAST   = ACIARW+$01               ; ACIA status register 
+;ACIAST   = ACIARW+$01               ; ACIA status register
 ;ACIACM   = ACIARW+$02               ; ACIA commnad register
 ;ACIACN   = ACIARW+$03               ; ACIA control register
 
@@ -1327,15 +1357,15 @@ ILTBL:   .byte $24, $3A, $91, $27, $10, $E1, $59, $C5, $2A, $56, $10, $11, $2C, 
 ; Begin base system initialization
 ;
 ;		 jmp main		; no 6522 on MKHBC-8-R1
-;--------------------		 
-;         sta ACIAST                 ; Do a soft reset on the ACIA
-;         lda #$0B                   ; Set it up for :
-;         sta ACIACM                 ;        no echo, no parity, RTS low, No IRQ, DTR low
-;         lda #$1A                   ; and :
-;         sta ACIACN                 ;        2400, 8 bits, 1 stop bit, external Rx clock
+;--------------------
+;         sta ACIAST    ; Do a soft reset on the ACIA
+;         lda #$0B      ; Set it up for :
+;         sta ACIACM    ;        no echo, no parity, RTS low, No IRQ, DTR low
+;         lda #$1A      ; and :
+;         sta ACIACN    ;        2400, 8 bits, 1 stop bit, external Rx clock
 ;--------------------
 
-main:		 
+main:
          jsr CLRSC                  ; Go clear the screen
          ldy #$00                   ; Offset for welcome message and prompt
          jsr SNDMSG                 ; Go print it
@@ -1347,34 +1377,34 @@ IS_WRM:  cmp #$57                   ; Check for 'W'
          BNE PRMPT                  ; If not, branch to re-prompt them
          jmp WARM_S                 ; Otherwise warm-start Tiny Basic
 PRMPT:   ldx #$2F                   ; Offset of prompt
-         jsr SNDMSG                 ; Go print the prompt	 
+         jsr SNDMSG                 ; Go print the prompt
          jmp ST_LP                  ; Go get the response
 
 .segment "MESG"
 
-         .org $4E00    ; Address of message area
+.org $4E00    ; Address of message area
 MBLK:
 
 ;
 ; The message block begins at $4E00 and is at most 256 bytes long.
 ; Messages terminate with an FF.
 ;
-      .byte "TINY BASIC FOR MKHBC-8-R2 6502"
-      .byte  $0D, $0A ;, $0A
-      .byte "Version: 1.0.6, 6/17/2017"
-      .byte  $0D, $0A ;, $0A
-      .byte  "(NOTE: USE UPPER CASE)"
-      .byte  $0D, $0A ;, $0A
-		.byte "TB resides at: $4400 - $4F67 ( 2 kB)",$0d,$0a
-		.byte "ML code space: $5000 - $5FFF ( 4 kB)",$0d,$0a
-		.byte "Basic program: $6000 - $BFFF (23 kB)",$0d,$0a
-      .byte "Boot ([C]old/[W]arm)? "
-      .byte  $07, $FF
-	
+.byte "TINY BASIC FOR MKHBC-8-R2 6502"
+.byte  $0D, $0A ;, $0A
+.byte "Version: 1.0.7, 2/13/2018"
+.byte  $0D, $0A ;, $0A
+.byte  "(NOTE: USE UPPER CASE)"
+.byte  $0D, $0A ;, $0A
+.byte "TB resides at: $4400 - $4F67 ( 2 kB)",$0d,$0a
+.byte "ML code space: $5000 - $5FFF ( 4 kB)",$0d,$0a
+.byte "Basic program: $6000 - $BFFF (23 kB)",$0d,$0a
+.byte "Boot ([C]old/[W]arm)? "
+.byte  $07, $FF
+
 .segment "SUBR"
 
-     .org $4F00    ;address of subroutine area
-	 
+.org $4F00    ;address of subroutine area
+
 SBLK:
 ;
 ; Begin BIOS subroutines
@@ -1382,14 +1412,15 @@ SBLK:
 
 ; M.O.S. API defines.
 
-StrPtr	=	$E0
+; defined in mkhbcos_ml.inc as mos_StrPtr
+; StrPtr	=	$E0
 
-; Kernel jump table
+; I/O functions from Kernel jump table
 
-GetCh	=	$FFED
-PutCh	=	$FFF0
-Gets	=	$FFF3
-Puts	=	$FFF6
+GetCh	=	mos_CallGetCh
+PutCh	=	mos_CallPutCh
+Gets	=	mos_CallGets
+Puts	=	mos_CallPuts
 
 
 ;SNDCHR	=	PutCh
@@ -1425,19 +1456,19 @@ ClrScrCode:
 CrsrHomeCode:
 
    .BYTE ESC,"[5;1H",0 ;move cursor to row 5
-	
+
 ClearScreen:
 
-	lda #<ClrScrCode
-	sta StrPtr
+    lda #<ClrScrCode
+	sta mos_StrPtr
 	lda #>ClrScrCode
-	sta StrPtr+1
+	sta mos_StrPtr+1
 	jsr Puts
-   lda #<CrsrHomeCode
-   sta StrPtr
-   lda #>CrsrHomeCode
-   sta StrPtr+1
-   jsr Puts   
+    lda #<CrsrHomeCode
+    sta mos_StrPtr
+    lda #>CrsrHomeCode
+    sta mos_StrPtr+1
+    jsr Puts
 	rts
 
 ;CLRSC:   ldx #$19                   ; Load X - we're going tp print 25 lines
@@ -1465,12 +1496,12 @@ EXSM:    rts                        ; Return
 ; Get a character from the ACIA
 ; Runs into SNDCHR to provide echo
 ;
-;RCCHR:   ;lda ACIAST                ; Read the ACAI status to (for OMS-02)
-         ;and #$08                  ; Check if there is character in the receiver (for OMS-02)
-         ;beq RCCHR                 ; Loop util we get one (for OMS-02)
-         ;lda ACIARW                ; Load it into the accumulator (for OMS-02)
-;         LDA $E004                  ; Check if a character typed (for emulator)
-;         BEQ RCCHR                  ; Loop until we get one (for emulator)
+;RCCHR: ;lda ACIAST  ; Read the ACAI status to (for OMS-02)
+        ;and #$08    ; Check if there is character in the receiver (for OMS-02)
+        ;beq RCCHR               ; Loop util we get one (for OMS-02)
+        ;lda ACIARW              ; Load it into the accumulator (for OMS-02)
+;        LDA $E004               ; Check if a character typed (for emulator)
+;        BEQ RCCHR               ; Loop until we get one (for emulator)
 
 RCCHR:   jsr GetCh
          jsr SNDCHR					; echo character to the console
@@ -1493,15 +1524,16 @@ SNDCHR:  sta $FE                    ; Save the character to be printed
          jsr PutCh                  ; MKHBC-8-Rx
          lda $fe
          rts
-SCLP:    ;lda ACIAST                ; Check ACIA Status  (don't need for emulator)
-         ;and #$10                  ; See if transmiter it busy (don't need for emulator)
-         ;beq SCLP                  ; Wait for it (don't need for emulator)
-         lda $FE                    ; Restore the character
-         ;sta ACIARW                ; Transmit it (for OMS-02)
-         STA $E001                  ; Transmit it (for emulator)
-EXSC:    rts                        ; Return
+SCLP:    ;lda ACIAST      ; Check ACIA Status  (don't need for emulator)
+         ;and #$10        ; See if transmiter it busy (don't need for emulator)
+         ;beq SCLP        ; Wait for it (don't need for emulator)
+         lda $FE          ; Restore the character
+         ;sta ACIARW      ; Transmit it (for OMS-02)
+         STA $E001        ; Transmit it (for emulator)
+EXSC:    rts              ; Return
 
-;         .org $1FFC                 ; Address of reset vector (for 6507 not required for emulator)
+;         .org $1FFC      ; Address of reset vector (for 6507 not required for
+                          ; emulator)
 ;RSVEC
 ;         .byte $F0, $1C               ; Reset vector
 
