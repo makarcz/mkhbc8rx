@@ -82,6 +82,9 @@
 ;   Added detection of RTC chip and extended (banked) RAM in $8000 - $BFFF
 ;   range.
 ;
+; 2018-02-13
+;   Bug corrected in detected devices flags.
+;
 ;-------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -104,7 +107,7 @@
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 3
-VerMnt      = 0
+VerMnt      = 1
 
 ; 6502 CPU
 
@@ -286,13 +289,12 @@ DetectedDevices     =   $E7
 DEVPRESENT_RTC      =   %10000000
 DEVPRESENT_NORTC    =   %01111111
 DEVPRESENT_EXTRAM   =   %01000000
-DEVPRESENT_NOEXTRAM =   $10111111
+DEVPRESENT_NOEXTRAM =   %10111111
 DEVPRESENT_BANKRAM  =   %00100000
 DEVPRESENT_NOBRAM   =   %11011111
 DEVPRESENT_UART     =   %00010000
 DEVPRESENT_NOUART   =   %11101111
-DEVNOEXTRAM         =   %10011111   ; alias for
-                                    ; DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
+DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
 
 .ORG RomBase
 
