@@ -10,6 +10,9 @@
  * 2/11/2018
  * 	Initial revision.
  *
+ * 2/12/2018
+ *  Extended text buffers.
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -23,8 +26,8 @@
 #include "mkhbcos_serialio.h"
 
 #define IBUF1_SIZE      40
-#define IBUF2_SIZE      40
-#define IBUF3_SIZE      32
+#define IBUF2_SIZE      60
+#define IBUF3_SIZE      40
 #define PROMPTBUF_SIZE  40
 #define RADIX_DEC       10
 #define RADIX_HEX       16
@@ -32,7 +35,7 @@
 
 const int ver_major = 1;
 const int ver_minor = 0;
-const int ver_build = 3;
+const int ver_build = 5;
 
 char prompt_buf[PROMPTBUF_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
@@ -52,7 +55,6 @@ void d2hb_getline(void)
 
 void d2hb_version(void)
 {
-	//strcpy(ibuf1, "MKHBCOS Enhanced Shell, version: ");
 	strcpy(ibuf1, itoa(ver_major, ibuf3, RADIX_DEC));
 	strcat(ibuf1, ".");
 	strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
@@ -65,7 +67,6 @@ void d2hb_version(void)
 void d2hb_banner(void)
 {
   while (kbhit()) getc(); // flush RX buffer
-	memset(prompt_buf,0,PROMPTBUF_SIZE);
   puts("\n\r");
 	puts("Decimal to hexadecimal / binary conversion tool.\n\r");
   puts("Version: ");
