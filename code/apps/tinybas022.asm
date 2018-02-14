@@ -100,6 +100,7 @@
 ;    When I exit TB by NMI, then re-enter it from monitor (x 4cf0) and do
 ;    warm start, then CLEAR, I am not able to enter any new program lines.
 ;    In older version / port (tinybasic.asm) this works.
+;    I need to find the code which handles CLEAR command.
 ;
 ;-----------------------------------------------------------------------------
 
@@ -132,8 +133,10 @@ SSS:      .byte $20                   ; Spare Stack size. (was $04 but
 ;
 ; Code fragment for 'PEEK' and 'POKE'
 ;
+OneBytePeek:
 PEEK:    STX $C3                   ; 'PEEK' - store X in $C3
          BCC LBL008                ; On carry clear goto LBL008
+OneBytePoke:
          STX $C3                   ; 'POKE' - store X in $C3
          STA ($C2),Y               ; Store A in location pointed to by $C3 (hi) and Y (lo)
          RTS                       ; Return
