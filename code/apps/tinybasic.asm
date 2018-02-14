@@ -261,9 +261,9 @@ LBL008:  lda (C_C2),Y
 	 .byte <JUMP29,>JUMP29
 	 .byte <JUMP30,>JUMP30
 
-     .byte $20,$41, $54,$20     ; No idea ????
+     .byte $20,$41, $54,$20     ; " AT " string used in error reporting.
 
-     .byte $80                  ; No idea
+     .byte $80                  ; String terminator
 
 LBL002:  .byte <ILTBL	;$70                  ; $70 - lo byte of IL address
 LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address

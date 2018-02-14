@@ -19,8 +19,12 @@ rem
 rem Feb 12 2018
 rem    Added date and setdt programs to delete list.
 rem
+rem Feb 14 2018
+rem    Added tinybas022 program to delete list.
+rem
 del *.o
 del *.lst
 del *.map
 del *_prg.txt
-del enhshell hello microchess test1 testansi tinybasic d2hb date setdt
+del enhshell hello microchess test1 testansi tinybasic tinybas022 d2hb date
+del setdt
