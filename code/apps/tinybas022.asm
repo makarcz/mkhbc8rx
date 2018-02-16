@@ -92,15 +92,42 @@
 ; 2/13/2018
 ;   Initial revision.
 ;
+; 2/16/2018
+;   Labels added for Peek/Poke and comments. No new code.
+;
 ;-----------------------------------------------------------------------------
 ;
 ; BUGS / Problems.
 ;
 ; 1. Warm start doesn't seem to work.
 ;    When I exit TB by NMI, then re-enter it from monitor (x 4cf0) and do
-;    warm start, then CLEAR, I am not able to enter any new program lines.
-;    In older version / port (tinybasic.asm) this works.
-;    I need to find the code which handles CLEAR command.
+;    a warm start, then CLEAR, I am not able to enter any new program lines.
+;    Getting error #8 from TB which means BASIC memory overflow.
+;
+;   2/16/2018 - I know what happened. Older version of TB acts the same.
+;               If I don't run any 'C' program code between NMI resest and
+;               re-runs of TB, all works fine.
+;               But running a 'C' program uses the same area of page 0 that TB
+;               uses to hold BASIC program boundaries pointers.
+;               See mkhbcoslib.cfg, zero page starts at $20:
+;               [...]
+;               MEMORY {
+;                   ZP:  start = $20, size = $E0, type = rw, define = yes;
+;               [...]
+;               TB memory pointers: $20..$25. It gets corrupted by C program.
+;               The cure for that would be probably to move these
+;               pointers to higher area of RAM if I want to run any C programs
+;               between re-runs of TB. However it is slightly problematic due
+;               to TB's free RAM test during Cold start. These registers
+;               desired location is below usable RAM area for BASIC.
+;               So the side effect of this is a loss of BASIC program
+;               in memory and having to use Cold start after restart of TB,
+;               which will properly re-initialize all the memory pointers.
+;               Minor inconvenience.
+;               Either remember not to run any programs that use
+;               zero page addresses $20..$25 between NMI reset and restart
+;               of TB. OR preserve these memory area values and restore them
+;               before WARM restart of TB.
 ;
 ;-----------------------------------------------------------------------------
 
@@ -209,7 +236,9 @@ BasicPrgStart = $6000
 ; Load start of free ram ($0200) into locations $20 and $21
 ; and initialize the address for end of free ram ($22 & $23)
 ;
-COLD_S:  lda #<BasicPrgStart        ; Load accumulator with $00
+COLD_S:  lda #$00
+		 jsr mos_BankedRamSel	    ; Set memory bank to 0.
+         lda #<BasicPrgStart        ; Load accumulator with $00
          sta $20                    ; Store $00 in $20
          sta $22                    ; Store $00 in $22
          lda #>BasicPrgStart        ; Load accumulator with $02
@@ -1525,8 +1554,8 @@ EXSC:    rts                        ; Return
 ;NO_CHR   lda $FE                ; Restore the saved A value
 ;         rts                    ; Return
 
-BREAK:   nop                     ; Begin dummy break routine
-         clc                     ; Clear the carry flag
+; Begin dummy break routine
+BREAK:   clc                     ; Clear the carry flag
          rts                     ; End break routine
 
 ;
