@@ -76,6 +76,10 @@
 ; 2/13/2018
 ;    Changes related to recent changes in MKHBCOS API.
 ;
+; 2/16/2018
+;    Added BRAM switch to bank #0 at beginning of Cold start.
+;   (part of TB BASIC RAM lies in the BRAM range.)
+;
 ;--------------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -278,7 +282,9 @@ LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address
 ; that can be loaded and used simultaneously with TB.
 ; $8000 to the end of writable memory is the BASIC memory space.
 ;
-COLD_S:  lda #$00       ; Load accumulator with lo byte of lower and upper
+COLD_S: lda #$00        ; Set memory bank to 0.
+		jsr mos_BankedRamSel
+        lda #$00        ; Load accumulator with lo byte of lower and upper
                         ; prg memory limits
          sta $20        ; Store in $20
          sta $22        ; Store in $22
@@ -1391,7 +1397,7 @@ MBLK:
 ;
 .byte "TINY BASIC FOR MKHBC-8-R2 6502"
 .byte  $0D, $0A ;, $0A
-.byte "Version: 1.0.7, 2/13/2018"
+.byte "Version: 1.0.8, 2/16/2018"
 .byte  $0D, $0A ;, $0A
 .byte  "(NOTE: USE UPPER CASE)"
 .byte  $0D, $0A ;, $0A

@@ -27,4 +27,4 @@ del *.lst
 del *.map
 del *_prg.txt
 del enhshell hello microchess test1 testansi tinybasic tinybas022 d2hb date
-del setdt
+del setdt enhmon
