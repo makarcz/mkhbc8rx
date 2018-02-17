@@ -46,10 +46,9 @@ enum cmdcodes
 	CMD_WNV,
 	CMD_RNV,
 	CMD_EXECUTE,
-	CMD_VERSION,
-    CMD_RAMBANK,
-    CMD_DEC2HEXBIN,
-    CMD_MEMCPY,
+  CMD_RAMBANK,
+  CMD_DEC2HEXBIN,
+  CMD_MEMCPY,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -65,7 +64,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 0;
-const int ver_build = 0;
+const int ver_build = 2;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
@@ -80,7 +79,7 @@ const char ga_errmsg[6][56] =
   "Unknown."
 };
 
-const char helptext[28][48] =
+const char helptext[27][48] =
 {
 	"\n\r",
 	"      r : read memory contents.\n\r",
@@ -91,20 +90,19 @@ const char helptext[28][48] =
 	"          i <hexaddr> <hexaddr> [hexdata]\n\r",
 	"      x : execute at address.\n\r",
 	"          x <hexaddr>\n\r",
-	"   dump : enhanced read memory/hex dump.\n\r",
+	"   dump : canonical memory dump. (hex,ASCII)\n\r",
 	"          dump <hexaddr>[ hexaddr]\n\r",
-    "    mcp : copy memory of specified size.\n\r",
-    "          mcp <hex_src> <hex_dst> <hex_size>\n\r",
-    "          NOTE: memory regions can't overlap",
+  "    mcp : copy memory of specified size.\n\r",
+  "          mcp <hex_src> <hex_dst> <hex_size>\n\r",
+  "          NOTE: memory regions can't overlap\n\r",
 	"    wnv : write to non-volatile RTC RAM.\n\r",
 	"          wnv <bank#> <hexaddr>\n\r",
 	"    rnv : dump non-volatile RTC RAM.\n\r",
 	"          rnv <bank#> [<hexaddr>]\n\r",
-    "   bank : see or select banked RAM bank.\n\r",
-    "          bank [<bank#(0..7)>]\n\r",
-    "   d2hb : decimal to hex/bin conversion.\n\r",
-    "          d2hb <decnum>\n\r",
-	"    ver : print version number.\n\r",
+  "   bank : see or select banked RAM bank.\n\r",
+  "          bank [<bank#(0..7)>]\n\r",
+  "   d2hb : decimal to hex/bin conversion.\n\r",
+  "          d2hb <decnum>\n\r",
 	"   exit : exit enhanced shell.\n\r",
 	"   help : print this message.\n\r",
 	"\n\r",
@@ -191,10 +189,6 @@ void enhmon_parse(void)
 	{
 		cmd_code = CMD_EXECUTE;
 	}
-	else if (0 == strncmp(prompt_buf,"ver",3))
-	{
-		cmd_code = CMD_VERSION;
-	}
 	else if (0 == strncmp(prompt_buf,"help",4))
 	{
 		cmd_code = CMD_HELP;
@@ -255,7 +249,7 @@ void enhmon_version(void)
 	strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
 	strcat(ibuf1, ".");
 	strcat(ibuf1, itoa(ver_build, ibuf3, RADIX_DEC));
-	strcat(ibuf1, "\n\r");
+	strcat(ibuf1, ".\n\r");
 	puts(ibuf1);
 }
 
@@ -390,17 +384,9 @@ void enhmon_rmemenh(void)
 	unsigned char b = 0x00;
 	int i;
 
-	i=5;
-	while (*(prompt_buf+i) != 0) {
-		if (*(prompt_buf+i) == 32 || *(prompt_buf+i) == '-') {
-			*(prompt_buf+i) = 0;
-			i++;
-        	enaddr = hex2int(prompt_buf+i);
-        	break;
-		}
-		i++;
-	}
-	staddr = hex2int(prompt_buf+5);
+  i = adv2nextspc(5);
+  enaddr = hex2int(prompt_buf + i);
+	staddr = hex2int(prompt_buf + 5);
 	if (enaddr == 0x0000) {
 		enaddr = staddr + 0x0100;
 	}
@@ -460,6 +446,7 @@ int adv2nxttoken(int idx)
     while (*(prompt_buf + idx) == 32) {
         idx++;
     }
+
     return idx;
 }
 
@@ -469,14 +456,18 @@ int adv2nxttoken(int idx)
 int adv2nextspc(int idx)
 {
     while (*(prompt_buf + idx) != 0) {
-		if (*(prompt_buf + idx) == 32) {
-			*(prompt_buf + idx) = 0;
-			idx++;
-        	break;
-		}
-		idx++;
-	}
-    return idx;
+
+		    if (*(prompt_buf + idx) == 32
+            || *(prompt_buf + idx) == '-') {
+
+			       *(prompt_buf + idx) = 0;
+			       idx++;
+             break;
+		    }
+		    idx++;
+	 }
+
+   return idx;
 }
 
 /*
@@ -486,11 +477,10 @@ int adv2nextspc(int idx)
  */
 void enhmon_mcp(void)
 {
-    uint16_t srcaddr = 0x0000;
+  uint16_t srcaddr = 0x0000;
 	uint16_t dstaddr = 0x0000;
-    unsigned char bcount = 256;
+  uint16_t bcount = 0x0100;
 	uint16_t addr = 0x0000;
-	unsigned char b = 0x00;
 	int i, tok1, tok2;
 
     // parse arguments:
@@ -660,9 +650,9 @@ int enhmon_exec(void)
 		case CMD_RMEMENH:
 			enhmon_rmemenh();
 			break;
-        case CMD_MEMCPY:
-            enhmon_mcp();
-            break;
+    case CMD_MEMCPY:
+      enhmon_mcp();
+      break;
 		case CMD_WRITEMEM:
 			enhmon_writemem();
 			break;
@@ -671,9 +661,6 @@ int enhmon_exec(void)
 			break;
 		case CMD_EXECUTE:
 			enhmon_execmem();
-			break;
-		case CMD_VERSION:
-			enhmon_version();
 			break;
 		case CMD_HELP:
 			enhmon_help();
@@ -684,12 +671,12 @@ int enhmon_exec(void)
 		case CMD_WNV:
 			enhmon_wnv();
 			break;
-        case CMD_RAMBANK:
-            enhmon_rambanksel();
-            break;
-        case CMD_DEC2HEXBIN:
-            enhmon_dec2hexbin();
-            break;
+    case CMD_RAMBANK:
+      enhmon_rambanksel();
+      break;
+    case CMD_DEC2HEXBIN:
+      enhmon_dec2hexbin();
+      break;
 		default:
 			break;
 	}
@@ -708,7 +695,7 @@ void enh_shell(void)
 
 	while(cont)
 	{
-		puts("mkhbc>");
+		puts("enhmon>");
 		enhmon_getline();
 		enhmon_parse();
 		cont = enhmon_exec();
@@ -719,11 +706,11 @@ void enhmon_banner(void)
 {
   while (kbhit()) getc(); // flush RX buffer
   memset(prompt_buf,0,PROMPTBUF_SIZE);
-  puts("\n\r\n\r");
-  puts("Welcome to Enhanced Monitor.\n\r");
+  puts("\n\r");
+  puts("Welcome to Enhanced Monitor ");
+  enhmon_version();
   puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
-  puts("  'help' for guide.\n\r");
-  puts("  'exit' to quit.\n\r\n\r");
+  puts("Type 'help' for guide.\n\r\n\r");
 }
 
 int g_bnum;
@@ -784,13 +771,13 @@ void enhmon_dec2hexbin()
   if (strlen(prompt_buf) > 5) {
     strcpy(hexval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_HEX));
     strcpy(binval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_BIN));
-    puts("Decimal: ");
+    puts("Dec: ");
     puts(prompt_buf+5);
     puts("\n\r");
-    puts("Hex:     ");
+    puts("Hex: ");
     puts(hexval);
     puts("\n\r");
-    puts("Binary:  ");
+    puts("Bin: ");
     puts(binval);
     puts("\n\r");
   } else {
