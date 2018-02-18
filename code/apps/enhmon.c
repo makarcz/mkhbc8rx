@@ -11,6 +11,10 @@
  * 	Created.
  *  NOTE: This is UNTESTED CODE.
  *
+ * 2/17/2018
+ *  Added new functions, corrected problems.
+ *  Refactored function enhmon_initmem().
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -48,7 +52,10 @@ enum cmdcodes
 	CMD_EXECUTE,
   CMD_RAMBANK,
   CMD_DEC2HEXBIN,
+  CMD_HEX2DECBIN,
+  CMD_BIN2HEXDEC,
   CMD_MEMCPY,
+  CMD_MEMCPR,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -59,52 +66,65 @@ enum eErrors {
   ERROR_NOEXTBRAM,
   ERROR_BANKNUM,
   ERROR_DECVALEXP,
+  ERROR_CHECKARGS,
+  ERROR_BADCMD,
+  ERROR_HEXVALEXP,
+  ERROR_BINVALEXP,
   ERROR_UNKNOWN
 };
 
 const int ver_major = 1;
-const int ver_minor = 0;
-const int ver_build = 2;
+const int ver_minor = 3;
+const int ver_build = 5;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
 
-const char ga_errmsg[6][56] =
+const char ga_errmsg[10][31] =
 {
   "OK.",
   "No RTC chip detected.",
-  "No extended RAM detected or extended RAM is not banked.",
+  "No BRAM detected.",
   "Bank# expected value: 0..7.",
   "Expected decimal argument.",
+  "Check command arguments.",
+  "Invalid command.",
+  "Expected hexadecimal argument.",
+  "Expected binary argument.",
   "Unknown."
 };
 
-const char helptext[27][48] =
+const char helptext[31][45] =
 {
 	"\n\r",
-	"      r : read memory contents.\n\r",
-	"          r <hexaddr>[-hexaddr]\n\r",
-	"      w : write data to address.\n\r",
-	"          w <hexaddr> <hexdata> [hexdata] ...\n\r",
-	"      i : initialize memory with value.\n\r",
-	"          i <hexaddr> <hexaddr> [hexdata]\n\r",
-	"      x : execute at address.\n\r",
-	"          x <hexaddr>\n\r",
-	"   dump : canonical memory dump. (hex,ASCII)\n\r",
-	"          dump <hexaddr>[ hexaddr]\n\r",
-  "    mcp : copy memory of specified size.\n\r",
-  "          mcp <hex_src> <hex_dst> <hex_size>\n\r",
-  "          NOTE: memory regions can't overlap\n\r",
-	"    wnv : write to non-volatile RTC RAM.\n\r",
-	"          wnv <bank#> <hexaddr>\n\r",
-	"    rnv : dump non-volatile RTC RAM.\n\r",
-	"          rnv <bank#> [<hexaddr>]\n\r",
-  "   bank : see or select banked RAM bank.\n\r",
-  "          bank [<bank#(0..7)>]\n\r",
-  "   d2hb : decimal to hex/bin conversion.\n\r",
-  "          d2hb <decnum>\n\r",
-	"   exit : exit enhanced shell.\n\r",
-	"   help : print this message.\n\r",
+	"   r : read memory contents.\n\r",
+	"       r <hexaddr>[-hexaddr]\n\r",
+	"   w : write data to address.\n\r",
+	"       w <hexaddr> <hexdata> [hexdata] ...\n\r",
+	"   i : initialize memory with value.\n\r",
+	"       i <hexaddr> <hexaddr> [hexdata]\n\r",
+	"   x : execute at address.\n\r",
+	"       x <hexaddr>\n\r",
+	"dump : canonical memory dump. (hex,ASCII)\n\r",
+	"       dump <hexaddr>[ hexaddr]\n\r",
+  " mcp : copy memory of specified size.\n\r",
+  "       mcp <hex_src> <hex_dst> <hex_size>\n\r",
+  "mcpr : copy memory range.\n\r",
+  "       mcpr <hex_beg> <hex_end> <hex_dst>\n\r",
+	" wnv : write to non-volatile RTC RAM.\n\r",
+	"       wnv <bank#> <hexaddr>\n\r",
+	" rnv : dump non-volatile RTC RAM.\n\r",
+	"       rnv <bank#> [<hexaddr>]\n\r",
+  "bank : see or select banked RAM bank.\n\r",
+  "       bank [<bank#(0..7)>]\n\r",
+  "d2hb : decimal to hex/bin conversion.\n\r",
+  "       d2hb <decnum>\n\r",
+  "h2db : hexadecimal to dec/bin conversion.\n\r",
+  "       h2db <hexval>\n\r",
+  "b2hd : binary to hex/dec conversion.\n\r",
+  "       b2hd <binval>\n\r",
+	"exit : exit enhanced shell.\n\r",
+	"help : print this message.\n\r",
 	"\n\r",
 	"@EOH"
 };
@@ -126,17 +146,21 @@ int     hex2int(const char *hexstr);
 void    enhmon_initmem(void);
 void    enhmon_rmemenh(void);
 void    enhmon_mcp(void);
+void    enhmon_mcpr(void);
 void    enhmon_rnv(void);
 void    enhmon_wnv(void);
 int     enhmon_exec(void);
-void    enh_shell(void);
+void    enhmon_shell(void);
 void    enhmon_banner(void);
 void    enhmon_rambanksel(void);
 void    enhmon_getrambank(void);
 void    enhmon_dec2hexbin(void);
+void    enhmon_hex2decbin(void);
+void    enhmon_bin2hexdec(void);
 void    enhmon_prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
+void    prn_decbinhex(char *dec, char *bin, char *hex);
 
 /* print error message */
 void enhmon_prnerror(int errnum)
@@ -173,9 +197,13 @@ void enhmon_parse(void)
 	{
 		cmd_code = CMD_RMEMENH;
 	}
-    else if (0 == strncmp(prompt_buf,"mcp ",4))
+  else if (0 == strncmp(prompt_buf,"mcp ",4))
 	{
 		cmd_code = CMD_MEMCPY;
+	}
+  else if (0 == strncmp(prompt_buf,"mcpr ",5))
+	{
+		cmd_code = CMD_MEMCPR;
 	}
 	else if (0 == strncmp(prompt_buf,"w ",2))
 	{
@@ -201,14 +229,22 @@ void enhmon_parse(void)
 	{
 		cmd_code = CMD_RNV;
 	}
-    else if (0 == strncmp(prompt_buf,"bank",4))
-    {
-        cmd_code = CMD_RAMBANK;
-    }
-    else if (0 == strncmp(prompt_buf,"d2hb ",5))
-    {
-        cmd_code = CMD_DEC2HEXBIN;
-    }
+  else if (0 == strncmp(prompt_buf,"bank",4))
+  {
+      cmd_code = CMD_RAMBANK;
+  }
+  else if (0 == strncmp(prompt_buf,"d2hb ",5))
+  {
+      cmd_code = CMD_DEC2HEXBIN;
+  }
+  else if (0 == strncmp(prompt_buf,"h2db ",5))
+  {
+      cmd_code = CMD_HEX2DECBIN;
+  }
+  else if (0 == strncmp(prompt_buf,"b2hd ",5))
+  {
+      cmd_code = CMD_BIN2HEXDEC;
+  }
 	else
 		cmd_code = CMD_UNKNOWN;
 }
@@ -222,8 +258,10 @@ void enhmon_help(void)
 	{
 		if (0 == strncmp(helptext[i],"@EOH",4))
 			cont = 0;
-		else
+		else {
+      puts("   ");  // 3 spaces
 			puts(helptext[i++]);
+    }
 	}
 }
 
@@ -335,34 +373,28 @@ void enhmon_initmem(void)
 {
 	uint16_t staddr = 0x0000;
 	uint16_t enaddr = 0x0000;
-	uint16_t addr = 0x0000;
-	int i, j, k;
-	unsigned char b;
+  int i, tok1, tok2, tok3;
+  int b = 256;
+  size_t count = 0;
 
-	i=2; j=k=0; b=0;
-	while (*(prompt_buf+i) != 0) {
-		if (*(prompt_buf+i) == 32 || *(prompt_buf+i) == '-') {
-			*(prompt_buf+i) = 0;
-			i++;
-			if (j == 0) j = i;
-			else {
-				k = i;
-				break;
-			}
-		}
-		i++;
-	}
-	staddr = hex2int(prompt_buf+2);
-	if (j > 0) enaddr = hex2int(prompt_buf+j);
-	if (k > 0) b = hex2int(prompt_buf+k);
-	if (enaddr == 0x0000) {
-		enaddr = staddr + 0x0100;
-	}
+  tok1 = adv2nxttoken(2); // begin of staddr
+  i = adv2nextspc(tok1);
+  tok2 = adv2nxttoken(i); // begin of enaddr
+  i = adv2nextspc(tok2);
+  tok3 = adv2nxttoken(i); // begin of value
+  adv2nextspc(tok3);
+  if (tok2 > tok1) {
+    staddr = hex2int(prompt_buf + tok1);
+    enaddr = hex2int(prompt_buf + tok2);
+  }
+  if (enaddr > staddr && tok3 > tok2 && tok2 > tok1) {
 
-	for (addr=staddr; addr<enaddr; addr++)
-	{
-		POKE(addr,b);
-	}
+    b = hex2int(prompt_buf + tok3);
+    count = enaddr - staddr;
+    memset((void *)staddr, b, count);
+  } else {
+    enhmon_prnerror(ERROR_CHECKARGS);
+  }
 }
 
 /*
@@ -479,8 +511,7 @@ void enhmon_mcp(void)
 {
   uint16_t srcaddr = 0x0000;
 	uint16_t dstaddr = 0x0000;
-  uint16_t bcount = 0x0100;
-	uint16_t addr = 0x0000;
+  uint16_t bytecnt = 0x0000;
 	int i, tok1, tok2;
 
     // parse arguments:
@@ -491,11 +522,47 @@ void enhmon_mcp(void)
     tok2 = i;   // remember start index of dstaddr
     i = adv2nextspc(i);
     i = adv2nxttoken(i);
-    srcaddr = hex2int(prompt_buf + tok1);
-    dstaddr = hex2int(prompt_buf + tok2);
-    bcount = hex2int(prompt_buf + i);
-    // TODO: add memory range checking (dst > src, overlapping etc.)
-    memcpy((void *)dstaddr, (void *)srcaddr, bcount);
+    if (i > tok2 && tok2 > tok1) {
+      srcaddr = hex2int(prompt_buf + tok1);
+      dstaddr = hex2int(prompt_buf + tok2);
+      bytecnt = hex2int(prompt_buf + i);
+    }
+    if (dstaddr != srcaddr && bytecnt > 0) {
+      memmove((void *)dstaddr, (void *)srcaddr, bytecnt);
+    } else {
+      enhmon_prnerror(ERROR_CHECKARGS);
+    }
+}
+
+/*
+ * Handle command: mcpr <hex_beg> <hex_end> <hex_dst>
+ * Copy non-overlapping memory region to destination.
+ */
+void enhmon_mcpr(void)
+{
+  uint16_t begaddr = 0x0000;
+	uint16_t endaddr = 0x0000;
+  uint16_t dstaddr = 0x0000;
+  uint16_t bytecnt = 0;
+	int i, tok1, tok2;
+
+    // parse arguments:
+    i = adv2nxttoken(5);
+    tok1 = i;   // remember start index of begaddr
+    i = adv2nextspc(i);
+    i = adv2nxttoken(i);
+    tok2 = i;   // remember start index of endaddr
+    i = adv2nextspc(i);
+    i = adv2nxttoken(i);
+    begaddr = hex2int(prompt_buf + tok1);
+    endaddr = hex2int(prompt_buf + tok2);
+    dstaddr = hex2int(prompt_buf + i);
+    if (endaddr > begaddr && i > tok2 && tok2 > tok1) {
+      bytecnt = endaddr - begaddr;
+      memmove((void *)dstaddr, (void *)begaddr, bytecnt);
+    } else {
+      enhmon_prnerror(ERROR_CHECKARGS);
+    }
 }
 
 /*
@@ -638,7 +705,7 @@ int enhmon_exec(void)
 		case CMD_NULL:
 			break;
 		case CMD_UNKNOWN:
-			puts("Invalid command.\n\r");
+      enhmon_prnerror(ERROR_BADCMD);
 			break;
 		case CMD_EXIT:
 			puts("Bye!\n\r");
@@ -652,6 +719,9 @@ int enhmon_exec(void)
 			break;
     case CMD_MEMCPY:
       enhmon_mcp();
+      break;
+    case CMD_MEMCPR:
+      enhmon_mcpr();
       break;
 		case CMD_WRITEMEM:
 			enhmon_writemem();
@@ -677,6 +747,12 @@ int enhmon_exec(void)
     case CMD_DEC2HEXBIN:
       enhmon_dec2hexbin();
       break;
+    case CMD_HEX2DECBIN:
+      enhmon_hex2decbin();
+      break;
+    case CMD_BIN2HEXDEC:
+      enhmon_bin2hexdec();
+      break;
 		default:
 			break;
 	}
@@ -689,7 +765,7 @@ int enhmon_exec(void)
  * Initialization and command shell loop.
  *
  */
-void enh_shell(void)
+void enhmon_shell(void)
 {
 	int cont = 1;
 
@@ -761,6 +837,23 @@ void enhmon_getrambank(void)
 }
 
 /*
+ * Print 3 strings to output in separate lines with labels
+ * Dec:, Hex: and Bin:.
+ */
+void prn_decbinhex(char *dec, char *bin, char *hex)
+{
+  puts("Dec: ");
+  puts(dec);
+  puts("\n\r");
+  puts("Hex: ");
+  puts(hex);
+  puts("\n\r");
+  puts("Bin: ");
+  puts(bin);
+  puts("\n\r");
+}
+
+/*
  * Decimal to hex/bin conversion.
  */
 void enhmon_dec2hexbin()
@@ -771,23 +864,86 @@ void enhmon_dec2hexbin()
   if (strlen(prompt_buf) > 5) {
     strcpy(hexval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_HEX));
     strcpy(binval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_BIN));
-    puts("Dec: ");
-    puts(prompt_buf+5);
-    puts("\n\r");
-    puts("Hex: ");
-    puts(hexval);
-    puts("\n\r");
-    puts("Bin: ");
-    puts(binval);
-    puts("\n\r");
+    prn_decbinhex(prompt_buf + 5, binval, hexval);
   } else {
     enhmon_prnerror(ERROR_DECVALEXP);
   }
 }
 
+/*
+ * Hexadecimal to decimal and binary conversion.
+ */
+void enhmon_hex2decbin(void)
+{
+  char *decval = ibuf1;
+  char *binval = ibuf2;
+  int dv = 0;
+  int i, j;
+
+  if (strlen(prompt_buf) > 5) {
+    i = adv2nxttoken(5);
+    adv2nextspc(i);
+    j = i;
+    // validate if proper hexadecimal value
+    while (*(prompt_buf + j) != 0) {
+      if (*(prompt_buf + j) < 48
+          || (*(prompt_buf + j) > 57 && *(prompt_buf + j) < 65)
+          || (*(prompt_buf + j) > 70 && *(prompt_buf + j) < 97)
+          || *(prompt_buf + j) > 102
+        ) {
+          enhmon_prnerror(ERROR_HEXVALEXP);
+          return;
+      }
+      j++;
+    }
+    dv = hex2int(prompt_buf + i);
+    strcpy(decval, utoa((unsigned int)dv, ibuf3, RADIX_DEC));
+    strcpy(binval, utoa((unsigned int)dv, ibuf3, RADIX_BIN));
+    prn_decbinhex(decval, binval, prompt_buf + i);
+  } else {
+    enhmon_prnerror(ERROR_HEXVALEXP);
+  }
+}
+
+/*
+ * Binary to hexadecimal and decimal conversion.
+ */
+void enhmon_bin2hexdec(void)
+{
+    char *hexval = ibuf1;
+    char *decval = ibuf2;
+    int pos = 0;
+    int dv = 0;
+    int i, j, k;
+
+    if (strlen(prompt_buf) > 5) {
+      i = adv2nxttoken(5);
+      adv2nextspc(i);
+      pos = strlen(prompt_buf + i) - 1;
+      j = i;
+      // convert binary to decimal
+      while (*(prompt_buf + j) != 0) {
+        // validate if proper binary digit
+        if (*(prompt_buf + j) != '1'  && *(prompt_buf + j) != '0') {
+            enhmon_prnerror(ERROR_BINVALEXP);
+            return;
+        }
+        k = ((*(prompt_buf + j) == '1') ? 1 : 0);
+        dv += k * power(2, pos);
+        pos--;
+        j++;
+      }
+      strcpy(hexval, utoa((unsigned int)dv, ibuf3, RADIX_HEX));
+      strcpy(decval, utoa((unsigned int)dv, ibuf3, RADIX_DEC));
+      prn_decbinhex(decval, prompt_buf + i, hexval);
+    } else {
+      enhmon_prnerror(ERROR_BINVALEXP);
+    }
+}
+
 int main(void)
 {
 	enhmon_banner();
-	enh_shell();
+	enhmon_shell();
 	return 0;
 }
