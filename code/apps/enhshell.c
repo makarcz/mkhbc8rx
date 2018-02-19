@@ -109,6 +109,8 @@
  *
  * 2/18/2018
  *  Refactoring, bug fixes and optimization.
+ *  NOTE: It looks like calls to kbhit() function take less memory than
+ *        use of macro KBHIT.
  *
  *  ..........................................................................
  *
@@ -135,7 +137,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 
- /*#define LCD_EN 1*/
+//#define LCD_EN 1
 
 enum cmdcodes
 {
@@ -147,6 +149,7 @@ enum cmdcodes
 	CMD_LCDINIT,
 	CMD_LCDPRINT,
 	CMD_LCDCLEAR,
+	CMD_CLOCK,		  // LCD clock
 #endif
 	CMD_READMEM,
 	CMD_RMEMENH,	  // enhanced read memory
@@ -155,7 +158,6 @@ enum cmdcodes
 	CMD_DATE,		    // read DS1685 RTC data
 	CMD_SETCLOCK,	  // set DS1685 time
 	CMD_SETDTTM,	  // set DS1685 date and time
-	CMD_CLOCK,		  // LCD clock
 	CMD_SLEEP,
 	CMD_RCLK,
 	CMD_WNV,
@@ -164,13 +166,13 @@ enum cmdcodes
 	CMD_EXECUTE,
   CMD_SHOWTMCT,   // show periodically updated (in interrupt) counter
   CMD_RAMBANK,    // select or get banked RAM bank#
-  CMD_DEC2HEXBIN, // decimal to hex/bin conversion
+  CMD_CONV,       // dec/hex/bin conversion
 	//-------------
 	CMD_UNKNOWN
 };
 
 const int ver_major = 2;
-const int ver_minor = 8;
+const int ver_minor = 9;
 const int ver_build = 0;
 
 #if defined(LCD_EN)
@@ -198,26 +200,24 @@ enum eErrors {
   ERROR_NORTC,
   ERROR_NOEXTBRAM,
   ERROR_BANKNUM,
-  ERROR_DECVALEXP,
   ERROR_CHECKARGS,
   ERROR_UNKNOWN
 };
 
-const char *ga_errmsg[8] =
+const char *ga_errmsg[7] =
 {
   "OK.",
   "No RTC chip detected.",
   "No BRAM detected.",
   "Bank# expected value: 0..7.",
-  "Expected decimal argument.",
   "Check command arguments.",
   "Unknown."
 };
 
 #if defined(LCD_EN)
-const char *helptext[39] =
+const char *helptext[38] =
 #else
-const char *helptext[35] =
+const char *helptext[34] =
 #endif
 {
 	"\n\r",
@@ -253,13 +253,12 @@ const char *helptext[35] =
 	"        rnv <bank#> [<hexaddr>]\n\r",
   " rtci : initialize RTC chip.\n\r",
   " sctr : show 64 Hz counter value.\n\r",
-  "        sctr [<num> <mon-interval>]\n\r",
   " bank : see or select banked RAM bank.\n\r",
   "        bank [<bank#(0..7)>]\n\r",
-  " d2hb : decimal to hex/bin conversion.\n\r",
-  "        d2hb <decnum>\n\r",
+  " conv : dec/hex/bin conversion.\n\r",
+  "        conv <type> <arg>\n\r",
+  "        type: d2hb, h2db, b2hd\n\r",
 	" exit : exit enhanced shell.\n\r",
-	" help : print this message.\n\r",
 	"\n\r",
 	"@EOH"
 };
@@ -274,14 +273,17 @@ void    enhsh_pause(uint16_t delay);
 void    pause_sec(uint16_t delay);
 void    enhsh_getline(void);
 void    enhsh_parse(void);
-void    enhsh_lcdp(void);
 void    enhsh_help(void);
 void    enhsh_readmem(void);
 void    enhsh_writemem(void);
 void    enhsh_execmem(void);
 void    enhsh_version(void);
 void    enhsh_cls(void);
+#if defined(LCD_EN)
+void    enhsh_lcdp(void);
 void    enhsh_lcdinit(void);
+void    enhsh_clock(void);
+#endif
 int     hexchar2int(char c);
 int     power(int base, int exp);
 int     hex2int(const char *hexstr);
@@ -290,7 +292,6 @@ void    enhsh_rmemenh(void);
 void    enhsh_date(unsigned char rdclk);
 void    enhsh_sleep();
 void    enhsh_time(unsigned char setdt);
-void    enhsh_clock(void);
 void    enhsh_rclk(void);
 void    enhsh_rnv(void);
 void    enhsh_wnv(void);
@@ -301,7 +302,7 @@ void    enhsh_banner(void);
 void    enhsh_showtmct(void);
 void    enhsh_rambanksel(void);
 void    enhsh_getrambank(void);
-void    enhsh_dec2hexbin(void);
+void    enhsh_conv(void);
 void    enhsh_prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
@@ -371,7 +372,7 @@ void pause_sec(uint16_t delay)
   	 	  ds1685_rdclock (&clkdata);
   	  }
   	  nsec--;
-      if (KBHIT) break; // must be able to interrupt from keyboard
+      if (kbhit()) break; // must be able to interrupt from keyboard
                         // remember to flush RX buffer vefore calling this
                         // function
   	}
@@ -485,18 +486,18 @@ void enhsh_parse(void)
   {
     cmd_code = CMD_RAMBANK;
   }
-  else if (0 == strncmp(prompt_buf,"d2hb",4))
+  else if (0 == strncmp(prompt_buf,"conv",4))
   {
-    cmd_code = CMD_DEC2HEXBIN;
+    cmd_code = CMD_CONV;
   }
 	else
 		cmd_code = CMD_UNKNOWN;
 }
 
 /* get text from console and print on LCD */
+#if defined(LCD_EN)
 void enhsh_lcdp(void)
 {
-#if defined(LCD_EN)
 	int l;
 	char c;
 
@@ -509,10 +510,8 @@ void enhsh_lcdp(void)
 	l = atoi(ibuf1);
 	if (l >= 0 && l < 3 && 0 < strlen(ibuf2))
 		lcd_puts(ibuf2, lcdlinesel[l]);
-#else
-	puts("LCD is not enabled.\n\r");
-#endif
 }
+#endif
 
 /* print help */
 void enhsh_help(void)
@@ -562,9 +561,9 @@ void enhsh_cls(void)
 	puts("\r");
 }
 
+#if defined(LCD_EN)
 void enhsh_lcdinit(void)
 {
-#if defined(LCD_EN)
 	char ecans = 'n';
 	char ebans = 'n';
 
@@ -576,10 +575,8 @@ void enhsh_lcdinit(void)
 	ebans = getchar();
 	puts("\n\r");
 	lcd_cursorctrl(((ecans=='y')?1:0), ((ebans=='y')?1:0));
-#else
-	puts("LCD is not enabled.\n\r");
-#endif
 }
+#endif
 
 /*
  *
@@ -732,7 +729,7 @@ void enhsh_rmemenh(void)
 		enaddr = staddr + 0x0100;
 	}
 
-  while (KBHIT) getc(); // flush RX buffer
+  while (kbhit()) getc(); // flush RX buffer
   for (addr=staddr; addr<enaddr; addr+=16)
   {
 	utoa(addr,ibuf1,RADIX_HEX);
@@ -768,9 +765,9 @@ void enhsh_rmemenh(void)
 	if (0xffff - enaddr <= 0x0f && addr < staddr)
 		break;
     // interrupt from keyboard
-    if (KBHIT) {
+    if (kbhit()) {
         if (32 == getc()) { // if SPACE,
-            while (!KBHIT)  /* wait for any keypress to continue */ ;
+            while (!kbhit())  /* wait for any keypress to continue */ ;
             getc();         // consume the key
         } else {            // if not SPACE, break (exit) the loop
             break;
@@ -881,7 +878,7 @@ void enhsh_sleep()
 	unsigned int sleptsec = 0, cmdarg = 0;
 	unsigned char currsec = 0;
 	cmdarg = atoi(prompt_buf+6);
-  while (KBHIT) getc(); // flush RX buffer
+  while (kbhit()) getc(); // flush RX buffer
 	pause_sec(cmdarg);
 }
 
@@ -957,16 +954,16 @@ void enhsh_time(unsigned char setdt)
  * Output date/time to LCD.
  *
  */
+#if defined(LCD_EN)
 void enhsh_clock(void)
 {
-#if defined(LCD_EN)
 	unsigned char date;
 
 	lcd_clear();
 	enhsh_date(2);
 	lcd_puts(ibuf1, lcdlinesel[1]); // output date part
 	date = clkdata.date;
-  while (KBHIT) getc(); // flush RX buffer
+  while (kbhit()) getc(); // flush RX buffer
 	while(1)
 	{
 		enhsh_date(2);
@@ -978,15 +975,13 @@ void enhsh_clock(void)
 		}
 		lcd_puts(ibuf2, lcdlinesel[2]); // output time part
 		pause_sec(1);
-    if (KBHIT) {  // interrupt from keyboard
+    if (kbhit()) {  // interrupt from keyboard
       getc();
       break;
     }
 	}
-#else
-	puts("LCD disabled.\n\r");
-#endif
 }
+#endif
 
 /*
  *
@@ -1254,8 +1249,8 @@ int enhsh_exec(void)
     case CMD_RAMBANK:
       enhsh_rambanksel();
       break;
-    case CMD_DEC2HEXBIN:
-      enhsh_dec2hexbin();
+    case CMD_CONV:
+      enhsh_conv();
       break;
 		default:
 			break;
@@ -1292,70 +1287,32 @@ void enhsh_banner(void)
   puts("Version: ");
   enhsh_version();
 	puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
-	puts("  'help' for guide.\n\r");
-	puts("  'exit' to quit.\n\r\n\r");
+	puts("  'help' for guide.\n\r\n\r");
 #if defined(LCD_EN)
 	LCD_INIT;
 	lcd_puts("   MKHBC-8-R2   ", LCD_LINE_1);
 	lcd_puts(" 6502 @ 1.8 Mhz ", LCD_LINE_2);
-#else
-	puts("LCD disabled.\n\r");
 #endif
 }
 
 /*
  * Show the value of counter updated in interrupt 64 times / sec.
  * Display decimal and hexadecimal format.
- * If optional arguments were provided in command line: num, delay
- * then the value of the counter will be shown num times in a loop
- * with delay # of seconds between each loop run.
  */
 void enhsh_showtmct(void)
 {
   unsigned long tmr64;
-  int num = 1;
-  int delay = 0;
-  int i = 0;
-  int tok1, tok2;
 
   if (!RTCDETECTED) {
       enhsh_prnerror(ERROR_NORTC);
       return;
   }
-
-  if (strlen(prompt_buf) > 4) {
-    tok1 = adv2nxttoken(5);
-    tok2 = adv2nextspc(tok1);
-    tok2 = adv2nxttoken(tok2);
-    adv2nextspc(tok2);
-    if (tok2 > tok1) {
-      num = atoi(prompt_buf + tok1);
-      delay = atoi(prompt_buf + tok2);
-    }
-  }
-
-  puts("Loop count: ");
-  puts(itoa(num, ibuf3, RADIX_DEC));
-  puts(", ");
-  puts("Delay: ");
-  puts(itoa(delay, ibuf3, RADIX_DEC));
-  puts(" seconds.\n\r");
-  while (kbhit()) getc(); // flush rx buffer
-  for (i = 0; i < num; i++) {
-    tmr64 = *TIMER64HZ;
-    strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
-    strcat(ibuf1, " $");
-    strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_HEX));
-    strcat(ibuf1, "\n\r");
-    puts(ibuf1);
-    if (kbhit()) {
-      getc();
-      break;
-    }
-    if (delay > 0) {
-      pause_sec(delay);
-    }
-  }
+  tmr64 = *TIMER64HZ;
+  strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
+  strcat(ibuf1, " $");
+  strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_HEX));
+  strcat(ibuf1, "\n\r");
+  puts(ibuf1);
 }
 
 int g_bnum;
@@ -1403,33 +1360,85 @@ void enhsh_getrambank(void)
 
   rambank = *RAMBANKNUM;
 
-  puts("Current RAM bank#: ");
+  puts("Current BRAM bank#: ");
   puts(utoa((unsigned int)rambank, ibuf3, RADIX_DEC));
   puts("\n\r");
 }
 
 /*
- * Decimal to hex/bin conversion.
+ * Dec/hex/bin conversion.
  */
-void enhsh_dec2hexbin()
+void enhsh_conv()
 {
+  int tok1, tok2, j, k, pos;
+  int dv = 0;
   char *hexval = ibuf1;
   char *binval = ibuf2;
+  char *decval = ibuf3;
 
   if (strlen(prompt_buf) > 5) {
-    strcpy(hexval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_HEX));
-    strcpy(binval, ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_BIN));
-    puts("Decimal: ");
-    puts(prompt_buf+5);
+    tok1 = adv2nxttoken(5);     // conversion type
+    tok2 = adv2nextspc(tok1);
+    tok2 = adv2nxttoken(tok2);  // argument
+    adv2nextspc(tok2);
+    if (0 == strncmp(prompt_buf + tok1, "d2hb", 4)) {
+      ultoa((unsigned long)atol(prompt_buf + tok2), hexval, RADIX_HEX);
+      ultoa((unsigned long)atol(prompt_buf + tok2), binval, RADIX_BIN);
+      strcpy(decval, prompt_buf + tok2);
+    } else if (0 == strncmp(prompt_buf + tok1, "h2db", 4)) {
+      // validate if proper hexadecimal value
+      /***
+      j = tok2;
+      while (*(prompt_buf + j) != 0) {
+        if (*(prompt_buf + j) < 48
+            || (*(prompt_buf + j) > 57 && *(prompt_buf + j) < 65)
+            || (*(prompt_buf + j) > 70 && *(prompt_buf + j) < 97)
+            || *(prompt_buf + j) > 102
+          ) {
+            enhsh_prnerror(ERROR_CHECKARGS);
+            return;
+        }
+        j++;
+      } ***/
+      dv = hex2int(prompt_buf + tok2);
+      utoa((unsigned int)dv, decval, RADIX_DEC);
+      utoa((unsigned int)dv, binval, RADIX_BIN);
+      strcpy(hexval, prompt_buf + tok2);
+    } else if (0 == strncmp(prompt_buf + tok1, "b2hd", 4)) {
+      j = tok2;
+      pos = strlen(prompt_buf + tok2) - 1;
+      // convert binary to decimal
+      while (*(prompt_buf + j) != 0) {
+        // validate if proper binary digit
+        /***
+        if (*(prompt_buf + j) != '1'  && *(prompt_buf + j) != '0') {
+            enhsh_prnerror(ERROR_CHECKARGS);
+            return;
+        }***/
+        k = ((*(prompt_buf + j) == '1') ? 1 : 0);
+        dv += k * power(2, pos);
+        pos--;
+        j++;
+      }
+      utoa((unsigned int)dv, hexval, RADIX_HEX);
+      utoa((unsigned int)dv, decval, RADIX_DEC);
+      strcpy(binval, prompt_buf + tok2);
+    }
+/*** not enough memory, must live without this check for now
+    else {
+      enhsh_prnerror(ERROR_CHECKARGS);
+    } ***/
+    puts("Dec: ");
+    puts(decval);
     puts("\n\r");
-    puts("Hex:     ");
+    puts("Hex: ");
     puts(hexval);
     puts("\n\r");
-    puts("Binary:  ");
+    puts("Bin: ");
     puts(binval);
     puts("\n\r");
   } else {
-    enhsh_prnerror(ERROR_DECVALEXP);
+    enhsh_prnerror(ERROR_CHECKARGS);
   }
 }
 
