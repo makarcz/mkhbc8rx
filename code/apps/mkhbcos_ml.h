@@ -33,6 +33,10 @@
  *    Added macros for RTC detected, extended RAM detected and Banked RAM
  *    detected.
  *
+ * 2018-02-19
+ *    Added comment for KBHIT macro.
+ *    Added Constants section and IO address range definitions.
+ *
  */
 
 #ifndef MKHBCOS_ML
@@ -77,6 +81,12 @@
 // Macros
 
 #define KBHIT       (*UARTRXINPT != *UARTRXOUTPT) // KbHit as macro
+/* NOTE:
+ * It is recommended to use library function kbhit(), if memory use is of
+ * concern. When compiled, the call to function is more compact than above
+ * macro expression. The performance may be better with the macro though.
+ * (performance claim not verified)
+ */
 #define RTCDETECTED (*DEVICESDET & DEVPRESENT_RTC) // true if RTC chip was
                                                    // detected by MOS
 #define EXTRAMDETECTED (*DEVICESDET & DEVPRESENT_EXTRAM) // true if extended
@@ -86,3 +96,9 @@
                                                           // RAM is banked
 
 #endif
+
+// Constants
+
+// IO address range (inclusive):
+#define IO_START    0xC000
+#define IO_END      0xC7FF
