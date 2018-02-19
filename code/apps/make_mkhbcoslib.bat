@@ -11,21 +11,21 @@ rem    linked with mkhbcos.lib (created originally
 rem    from supervision.lib and modified crt0.s).
 rem
 rem Author: Marek Karcz (C) 2012-2018
-rem 
+rem
 rem Revision history:
-rem 
+rem
 rem Jan 2012
 rem    Created
 rem
 rem 1/19/2012
-rem    
+rem
 rem    Assembling mkhbcos_init.s (created from crt0.s), mkhbcos_serialio.s,
 rem    mkhbcos_lcd.s, mkhbcos_ansi.s and mkhbcos_ds1685.s added.
 rem    Objects mkhbcos_serialio.o, mkhbcos_lcd.o, mkhbcos_ds1685.o,
 rem    mkhbcos_ansi.s are added to mkhbcos.lib.
-rem    Removed objects: puts.o, fgetc.o, gets.o, 
+rem    Removed objects: puts.o, fgetc.o, gets.o,
 rem    putchar.o, getchar.o from mkhbcos.lib
-rem    (These objects were std implementations from 
+rem    (These objects were std implementations from
 rem     supervision.lib causing duplicate symbols and
 rem     missing object references. Now I supply
 rem     my own implementation of these routines for MKHBCOS).
@@ -36,7 +36,11 @@ rem    Added comments and (C) notice.
 rem
 rem 1/28/2018
 rem
-rem    Renamed from makehello.bat to make_mkhbcoslib.bat.
+rem     Renamed from makehello.bat to make_mkhbcoslib.bat.
+rem
+rem 2/18/2018
+rem
+rem     Added deleting generated assembly files after compilation.
 rem
 
 echo Building library "mkhbcos.lib" ...
@@ -51,7 +55,9 @@ echo      Assemble/compile source code ...
 cc65 -t none --cpu 6502 mkhbcos_lcd1602.c
 cc65 -t none --cpu 6502 mkhbcos_ansi.c
 ca65 mkhbcos_lcd1602.s
+del mkhbcos_lcd1602.s
 ca65 mkhbcos_ansi.s
+del mkhbcos_ansi.s
 rem ca65 crt0.s
 ca65 mkhbcos_init.s
 ca65 mkhbcos_serialio.s
@@ -74,7 +80,7 @@ rem cl65 -t none --cpu 6502 --config mkhbcoslib.cfg -l -m hello.map hello.c mkhb
 
 echo Generating terminal program loading script "hello_prg.txt" ...
 rem
-rem command below will build hex load file with 
+rem command below will build hex load file with
 rem suppressed all zeroes lines and will put
 rem execute statement at the end of file
 rem NOTE: Use feature 'remove all zeroes' (flag -z)

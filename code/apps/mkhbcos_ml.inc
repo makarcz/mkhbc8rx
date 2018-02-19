@@ -6,7 +6,15 @@
 ;
 ; Author:	Marek Karcz
 ; Created:	2/11/2018
+;
+; Revision history:
+;
+; 2/18/2018
+;   Removed hardcoded definition of 'sp' variable.
+;   Added .include "zeropage.inc" to import ZP objects instead.
 ;-----------------------------------------------------------------------------
+
+.include "zeropage.inc"     ; import zero page objects
 
 ; MOS registers and definitions.
 .define     Timer64Hz       $E2     ; 4-byte counter
@@ -25,7 +33,10 @@
 .define 	DSCALADDR		RTC     ; port for accessing RTC reg. address
 .define		DSCALDATA		RTC+1   ; port for accessing RTC reg. data
 
-.define		sp				$20     ; stack pointer (CC65)
+; 2/18/2018 - this should not be hardcoded but imported.
+;             When I changed ZP start, the statement below caused problems
+;             for runtime. I added .include "zeropage.inc" instead.
+;.define		sp				$20     ; stack pointer (CC65)
 
 ; RTC shadow registers in RAM
 RegB	=	tmp_zpgPt

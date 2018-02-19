@@ -15,6 +15,9 @@
  *  Added new functions, corrected problems.
  *  Refactored function enhmon_initmem().
  *
+ * 2/18/2018
+ *  Refactored constant strings and enhmon_rnv().
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -74,13 +77,13 @@ enum eErrors {
 };
 
 const int ver_major = 1;
-const int ver_minor = 3;
-const int ver_build = 5;
+const int ver_minor = 4;
+const int ver_build = 0;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
 
-const char ga_errmsg[10][31] =
+const char *ga_errmsg[11] =
 {
   "OK.",
   "No RTC chip detected.",
@@ -94,7 +97,7 @@ const char ga_errmsg[10][31] =
   "Unknown."
 };
 
-const char helptext[31][45] =
+const char *helptext[32] =
 {
 	"\n\r",
 	"   r : read memory contents.\n\r",
@@ -582,27 +585,27 @@ void enhmon_rnv(void)
   uint16_t addr       = 0x000e;
   uint16_t ramaddr    = 0x0000;
   int i, len;
+  int optarg = 0; // optional argument provided 0 - no / 1 - yes
 
   if (!RTCDETECTED) {
       enhmon_prnerror(ERROR_NORTC);
       return;
   }
 
-  len = strlen(prompt_buf); // length of prompt before cut off at 1=st arg.
-  // find beginning of 1-st arg. (bank #)
-  offs = adv2nxttoken(3);
-  // find the end of 1-st arg.
-  offs2 = offs;
-  offs2 = adv2nextspc(offs2);
-  bank = atoi(prompt_buf+offs);
+  len = strlen(prompt_buf);   // length of prompt before cut off at 1=st arg.
+  offs = adv2nxttoken(3);     // find beginning of 1-st arg. (bank #)
+  offs2 = adv2nextspc(offs);  // find the end of 1-st arg.
+  bank = atoi(prompt_buf + offs);
   if (bank) addr=0;
   /*
     optional argument, hexaddr
     if full len of prompt greater than prompt cut at end of 1-st arg.
    */
   if (len > strlen(prompt_buf)) {
+    optarg = 1;
     // find the start index of 2-nd argument (hexaddr)
     offs2 = adv2nxttoken(offs2);
+    adv2nextspc(offs2);
     ramaddr = hex2int(prompt_buf+offs2);
     puts("RAM copy address: ");
     puts(itoa(ramaddr, ibuf3, RADIX_HEX));
@@ -624,9 +627,9 @@ void enhmon_rnv(void)
     for (offs=0; offs<16 && (addr+offs)<0x0080; offs++)
     {
     	b = ds1685_readram(bank, (addr+offs)&0x00ff);
-        if (ramaddr >= 0x4000) { // don't write over self
-            POKE(ramaddr++, b);
-        }
+      if (optarg) {
+        POKE(ramaddr++, b);
+      }
     	if (b < 16)
     		putchar('0');
     	puts(itoa(b,ibuf3,RADIX_HEX));

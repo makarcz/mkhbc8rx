@@ -1,5 +1,4 @@
-;------------------------------------------------------------------
-;
+;-----------------------------------------------------------------------------
 ; File: 	mkhbcos_lcd.s
 ; Author:	Marek Karcz
 ; Purpose:	Implement's LCD 1602 module routines to be
@@ -17,13 +16,15 @@
 ;   2012-01-19:
 ;		Added lcdinitseq table.
 ;
-;------------------------------------------------------------------
+;   2018-02-18:
+;       ML header for MKHBCOS.
+;       Deleted hardcoded 'sp' variable.
+;
+;-----------------------------------------------------------------------------
 
 ; M.O.S. API defines (kernal)
+.include "mkhbcos_ml.inc"
 
-.define 	mos_StrPtr		$E0
-.define		tmp_zpgPt		$F6
-.define		IOBase			$c000
 .define		IO3				IOBase+3*256
 .define		LCDcmd			IO3
 .define		LCDdat			IO3+1
@@ -36,7 +37,7 @@ Reg01	=	tmp_zpgPt+4
 .import ldaxysp,pushax,popax,pusha,popa
 .import incsp2
 
-.define		sp				$20
+;.define		sp				$20
 
 ; code
 
@@ -49,7 +50,7 @@ Reg01	=	tmp_zpgPt+4
 
 .proc _lcd_busy: near
 
-l0:  
+l0:
 	lda LCDcmd          ; read from LCD register 0
     and #$80            ; check bit 7 (busy)
     bne l0				; loop until cleared
@@ -134,7 +135,7 @@ l4:
 ; X = lo_delay, Y = hi_delay
 ; Counts down the 16-bit value to zero, then exits.
 
-Delay:			
+Delay:
 
 	stx Ct02
 	sty Ct02+1
@@ -154,4 +155,3 @@ DelLoop:
 _lcdinitseq:
 
 	.byte $38,$0c,$06,$01,0
-

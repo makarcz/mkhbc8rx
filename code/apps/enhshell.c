@@ -170,8 +170,8 @@ enum cmdcodes
 };
 
 const int ver_major = 2;
-const int ver_minor = 7;
-const int ver_build = 1;
+const int ver_minor = 8;
+const int ver_build = 0;
 
 #if defined(LCD_EN)
 const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
@@ -180,12 +180,12 @@ const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
 
-const char daysofweek[8][4] =
+const char *daysofweek[8] =
 {
 	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
 };
 
-const char monthnames[13][4] =
+const char *monthnames[13] =
 {
 	"Jan", "Feb", "Mar",
   "Apr", "May", "Jun",
@@ -203,7 +203,7 @@ enum eErrors {
   ERROR_UNKNOWN
 };
 
-const char ga_errmsg[8][28] =
+const char *ga_errmsg[8] =
 {
   "OK.",
   "No RTC chip detected.",
@@ -215,9 +215,9 @@ const char ga_errmsg[8][28] =
 };
 
 #if defined(LCD_EN)
-const char helptext[39][46] =
+const char *helptext[39] =
 #else
-const char helptext[35][46] =
+const char *helptext[35] =
 #endif
 {
 	"\n\r",
@@ -1039,18 +1039,16 @@ void enhsh_rnv(void)
   uint16_t addr       = 0x000e;
   uint16_t ramaddr    = 0x0000;
   int i, len;
+  int optarg = 0; // optional argument provided (0 - no / 1 - yes)
 
   if (!RTCDETECTED) {
       enhsh_prnerror(ERROR_NORTC);
       return;
   }
 
-  len = strlen(prompt_buf); // length of prompt before cut off at 1=st arg.
-  // find beginning of 1-st arg. (bank #)
-  offs = adv2nxttoken(3);
-  // find the end of 1-st arg.
-  offs2 = offs;
-  offs2 = adv2nextspc(offs2);
+  len = strlen(prompt_buf);   // length of prompt before cut off at 1=st arg.
+  offs = adv2nxttoken(3);     // find beginning of 1-st arg. (bank #)
+  offs2 = adv2nextspc(offs);  // find the end of 1-st arg.
   bank = atoi(prompt_buf+offs);
   if (bank) addr=0;
   /*
@@ -1058,6 +1056,7 @@ void enhsh_rnv(void)
     if full len of prompt greater than prompt cut at end of 1-st arg.
    */
   if (len > strlen(prompt_buf)) {
+    optarg = 1;
     // find the start index of 2-nd argument (hexaddr)
     offs2 = adv2nxttoken(offs2);
     ramaddr = hex2int(prompt_buf+offs2);
@@ -1081,7 +1080,7 @@ void enhsh_rnv(void)
     for (offs=0; offs<16 && (addr+offs)<0x0080; offs++)
     {
     	b = ds1685_readram(bank, (addr+offs)&0x00ff);
-        if (ramaddr >= 0x4000) { // don't write over self
+        if (optarg) {
             POKE(ramaddr++, b);
         }
     	if (b < 16)
@@ -1314,8 +1313,6 @@ void enhsh_banner(void)
 void enhsh_showtmct(void)
 {
   unsigned long tmr64;
-  //int offs = 5;
-  //int offs2 = 6;
   int num = 1;
   int delay = 0;
   int i = 0;
@@ -1337,22 +1334,6 @@ void enhsh_showtmct(void)
     }
   }
 
-    /***
-  if (strlen(prompt_buf) > 4) {
-	  while (prompt_buf[offs] == 32) {
-      offs++;
-	  }
-    offs2 = offs;
-    while (prompt_buf[offs2] != 32) {
-      offs2++;
-    }
-    prompt_buf[offs2++] = 0;
-    while (prompt_buf[offs2] == 32) {
-      offs2++;
-    }
-    num = atoi(prompt_buf+offs);
-    delay = atoi(prompt_buf+offs2);
-  } ***/
   puts("Loop count: ");
   puts(itoa(num, ibuf3, RADIX_DEC));
   puts(", ");
