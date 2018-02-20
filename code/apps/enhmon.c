@@ -47,16 +47,16 @@
 
 enum cmdcodes
 {
-	CMD_NULL = 0,
-	CMD_HELP,
-	CMD_EXIT,
-	CMD_READMEM,
-	CMD_RMEMENH,
-	CMD_WRITEMEM,
-	CMD_INITMEM,
-	CMD_WNV,
-	CMD_RNV,
-	CMD_EXECUTE,
+    CMD_NULL = 0,
+    CMD_HELP,
+    CMD_EXIT,
+    CMD_READMEM,
+    CMD_RMEMENH,
+    CMD_WRITEMEM,
+    CMD_INITMEM,
+    CMD_WNV,
+    CMD_RNV,
+    CMD_EXECUTE,
     CMD_RAMBANK,
     CMD_DEC2HEXBIN,
     CMD_HEX2DECBIN,
@@ -68,16 +68,16 @@ enum cmdcodes
 };
 
 enum eErrors {
-  ERROR_OK = 0,
-  ERROR_NORTC,
-  ERROR_NOEXTBRAM,
-  ERROR_BANKNUM,
-  ERROR_DECVALEXP,
-  ERROR_CHECKARGS,
-  ERROR_BADCMD,
-  ERROR_HEXVALEXP,
-  ERROR_BINVALEXP,
-  ERROR_UNKNOWN
+    ERROR_OK = 0,
+    ERROR_NORTC,
+    ERROR_NOEXTBRAM,
+    ERROR_BANKNUM,
+    ERROR_DECVALEXP,
+    ERROR_CHECKARGS,
+    ERROR_BADCMD,
+    ERROR_HEXVALEXP,
+    ERROR_BINVALEXP,
+    ERROR_UNKNOWN
 };
 
 const int ver_major = 1;
@@ -89,39 +89,39 @@ const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 
 const char *ga_errmsg[11] =
 {
-  "OK.",
-  "No RTC chip detected.",
-  "No BRAM detected.",
-  "Bank# expected value: 0..7.",
-  "Expected decimal argument.",
-  "Check command arguments.",
-  "Invalid command.",
-  "Expected hexadecimal argument.",
-  "Expected binary argument.",
-  "Unknown."
+    "OK.",
+    "No RTC chip detected.",
+    "No BRAM detected.",
+    "Bank# expected value: 0..7.",
+    "Expected decimal argument.",
+    "Check command arguments.",
+    "Invalid command.",
+    "Expected hexadecimal argument.",
+    "Expected binary argument.",
+    "Unknown."
 };
 
 const char *helptext[32] =
 {
-	"\n\r",
-	"   r : read memory contents.\n\r",
-	"       r <hexaddr>[-hexaddr]\n\r",
-	"   w : write data to address.\n\r",
-	"       w <hexaddr> <hexdata> [hexdata] ...\n\r",
-	"   i : initialize memory with value.\n\r",
-	"       i <hexaddr> <hexaddr> [hexdata]\n\r",
-	"   x : execute at address.\n\r",
-	"       x <hexaddr>\n\r",
-	"dump : canonical memory dump. (hex,ASCII)\n\r",
-	"       dump <hexaddr>[ hexaddr]\n\r",
+    "\n\r",
+    "   r : read memory contents.\n\r",
+    "       r <hexaddr>[-hexaddr]\n\r",
+    "   w : write data to address.\n\r",
+    "       w <hexaddr> <hexdata> [hexdata] ...\n\r",
+    "   i : initialize memory with value.\n\r",
+    "       i <hexaddr> <hexaddr> [hexdata]\n\r",
+    "   x : execute at address.\n\r",
+    "       x <hexaddr>\n\r",
+    "dump : canonical memory dump. (hex,ASCII)\n\r",
+    "       dump <hexaddr>[ hexaddr]\n\r",
     " mcp : copy memory of specified size.\n\r",
     "       mcp <hex_src> <hex_dst> <hex_size>\n\r",
     "mcpr : copy memory range.\n\r",
     "       mcpr <hex_beg> <hex_end> <hex_dst>\n\r",
-	" wnv : write to non-volatile RTC RAM.\n\r",
-	"       wnv <bank#> <hexaddr>\n\r",
-	" rnv : dump non-volatile RTC RAM.\n\r",
-	"       rnv <bank#> [<hexaddr>]\n\r",
+    " wnv : write to non-volatile RTC RAM.\n\r",
+    "       wnv <bank#> <hexaddr>\n\r",
+    " rnv : dump non-volatile RTC RAM.\n\r",
+    "       rnv <bank#> [<hexaddr>]\n\r",
     "bank : see or select banked RAM bank.\n\r",
     "       bank [<bank#(0..7)>]\n\r",
     "d2hb : decimal to hex/bin conversion.\n\r",
@@ -130,10 +130,10 @@ const char *helptext[32] =
     "       h2db <hexval>\n\r",
     "b2hd : binary to hex/dec conversion.\n\r",
     "       b2hd <binval>\n\r",
-	"exit : exit enhanced shell.\n\r",
-	"help : print this message.\n\r",
-	"\n\r",
-	"@EOH"
+    "exit : exit enhanced shell.\n\r",
+    "help : print this message.\n\r",
+    "\n\r",
+    "@EOH"
 };
 
 int cmd_code = CMD_NULL;
@@ -502,9 +502,9 @@ int adv2nextspc(int idx)
         if (*(prompt_buf + idx) == 32
             || *(prompt_buf + idx) == '-') {
 
-                *(prompt_buf + idx) = 0;
-                idx++;
-                break;
+            *(prompt_buf + idx) = 0;
+            idx++;
+            break;
         }
         idx++;
     }
@@ -538,9 +538,9 @@ void enhmon_mcp(void)
       bytecnt = hex2int(prompt_buf + i);
     }
     if (dstaddr != srcaddr && bytecnt > 0) {
-      memmove((void *)dstaddr, (void *)srcaddr, bytecnt);
+        memmove((void *)dstaddr, (void *)srcaddr, bytecnt);
     } else {
-      enhmon_prnerror(ERROR_CHECKARGS);
+        enhmon_prnerror(ERROR_CHECKARGS);
     }
 }
 
@@ -568,10 +568,10 @@ void enhmon_mcpr(void)
     endaddr = hex2int(prompt_buf + tok2);
     dstaddr = hex2int(prompt_buf + i);
     if (endaddr > begaddr && i > tok2 && tok2 > tok1) {
-      bytecnt = endaddr - begaddr;
-      memmove((void *)dstaddr, (void *)begaddr, bytecnt);
+        bytecnt = endaddr - begaddr;
+        memmove((void *)dstaddr, (void *)begaddr, bytecnt);
     } else {
-      enhmon_prnerror(ERROR_CHECKARGS);
+        enhmon_prnerror(ERROR_CHECKARGS);
     }
 }
 
