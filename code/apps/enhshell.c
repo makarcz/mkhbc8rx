@@ -176,7 +176,7 @@ enum cmdcodes
 
 const int ver_major = 3;
 const int ver_minor = 0;
-const int ver_build = 0;
+const int ver_build = 1;
 
 #if defined(LCD_EN)
 const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
@@ -686,9 +686,9 @@ int kbhit(void)
  */
 void enhsh_initmem(void)
 {
+    int i, tok1, tok2, tok3;
     uint16_t staddr = 0x0000;
     uint16_t enaddr = 0x0000;
-    int i, tok1, tok2, tok3;
     int b = 256;
     size_t count = 0;
 
@@ -727,11 +727,11 @@ void enhsh_initmem(void)
  */
 void enhsh_rmemenh(void)
 {
+    int i;
     uint16_t staddr = 0x0000;
     uint16_t enaddr = 0x0000;
     uint16_t addr = 0x0000;
     unsigned char b = 0x00;
-    int i;
 
     i = adv2nextspc(5);
     enaddr = hex2int(prompt_buf + i);
@@ -1027,13 +1027,13 @@ void enhsh_rclk(void)
  */
 void enhsh_rnv(void)
 {
+    int i, len;
     unsigned char b     = 0x00;
     unsigned char bank  = 0;
     unsigned char offs  = 0;
     unsigned char offs2 = 0;
     uint16_t addr       = 0x000e;
     uint16_t ramaddr    = 0x0000;
-    int i, len;
     int optarg = 0; // optional argument provided (0 - no / 1 - yes)
 
     if (!RTCDETECTED) {
@@ -1107,11 +1107,11 @@ void enhsh_rnv(void)
  */
 void enhsh_wnv(void)
 {
+    int i,n;
     unsigned char b = 0x00;
     unsigned char bank = 0;
     uint16_t addr = 0x0000;
     uint16_t nvaddr = 0x000e;
-    int i,n;
 
     if (!RTCDETECTED) {
         enhsh_prnerror(ERROR_NORTC);
@@ -1369,6 +1369,8 @@ void enhsh_getrambank(void)
 
 /*
  * Dec/hex/bin conversion.
+ * NOTE: Due to code size constraints that I wanted to adhere to,
+ *       validation of proper input value is not implemented.
  */
 void enhsh_conv()
 {
@@ -1456,10 +1458,10 @@ void enhsh_conv()
  */
 void enhsh_mcp(void)
 {
+    int i, tok1, tok2;
     uint16_t srcaddr = 0x0000;
     uint16_t dstaddr = 0x0000;
     uint16_t bytecnt = 0x0000;
-    int i, tok1, tok2;
 
     // parse arguments:
     i = adv2nxttoken(4);

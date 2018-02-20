@@ -22,6 +22,10 @@
  *  Formatting source code.
  *  Refactoring.
  *
+ * 2/20/2018
+ *  Refactoring / optimization (applying CC65 coding hints).
+ *  Validation if proper decimal value added in dec2hexbin conversion.
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -82,7 +86,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 4;
-const int ver_build = 1;
+const int ver_build = 2;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
@@ -378,9 +382,9 @@ int hex2int(const char *hexstr)
  */
 void enhmon_initmem(void)
 {
+    int i, tok1, tok2, tok3;
     uint16_t staddr = 0x0000;
     uint16_t enaddr = 0x0000;
-    int i, tok1, tok2, tok3;
     int b = 256;
     size_t count = 0;
 
@@ -417,11 +421,11 @@ void enhmon_initmem(void)
  */
 void enhmon_rmemenh(void)
 {
+    int i, tok1, tok2;
     uint16_t staddr = 0x0000;
     uint16_t enaddr = 0x0000;
     uint16_t addr = 0x0000;
     unsigned char b = 0x00;
-    int i, tok1, tok2;
 
     tok1 = adv2nxttoken(5);
     tok2 = adv2nextspc(tok1);
@@ -485,7 +489,7 @@ void enhmon_rmemenh(void)
  */
 int adv2nxttoken(int idx)
 {
-    while (*(prompt_buf + idx) == 32) {
+    while (prompt_buf[idx] == 32) {
         idx++;
     }
 
@@ -497,12 +501,12 @@ int adv2nxttoken(int idx)
  */
 int adv2nextspc(int idx)
 {
-    while (*(prompt_buf + idx) != 0) {
+    while (prompt_buf[idx] != 0) {
 
-        if (*(prompt_buf + idx) == 32
-            || *(prompt_buf + idx) == '-') {
+        if (prompt_buf[idx] == 32
+            || prompt_buf[idx] == '-') {
 
-            *(prompt_buf + idx) = 0;
+            prompt_buf[idx] = 0;
             idx++;
             break;
         }
@@ -519,10 +523,10 @@ int adv2nextspc(int idx)
  */
 void enhmon_mcp(void)
 {
+    int i, tok1, tok2;
     uint16_t srcaddr = 0x0000;
     uint16_t dstaddr = 0x0000;
     uint16_t bytecnt = 0x0000;
-    int i, tok1, tok2;
 
     // parse arguments:
     i = adv2nxttoken(4);
@@ -550,11 +554,11 @@ void enhmon_mcp(void)
  */
 void enhmon_mcpr(void)
 {
+    int i, tok1, tok2;
     uint16_t begaddr = 0x0000;
     uint16_t endaddr = 0x0000;
     uint16_t dstaddr = 0x0000;
     uint16_t bytecnt = 0;
-    int i, tok1, tok2;
 
     // parse arguments:
     i = adv2nxttoken(5);
@@ -585,18 +589,18 @@ void enhmon_mcpr(void)
  */
 void enhmon_rnv(void)
 {
+    int i, len;
     unsigned char b     = 0x00;
     unsigned char bank  = 0;
     unsigned char offs  = 0;
     unsigned char offs2 = 0;
     uint16_t addr       = 0x000e;
     uint16_t ramaddr    = 0x0000;
-    int i, len;
     int optarg = 0; // optional argument provided 0 - no / 1 - yes
 
     if (!RTCDETECTED) {
-      enhmon_prnerror(ERROR_NORTC);
-      return;
+        enhmon_prnerror(ERROR_NORTC);
+        return;
     }
 
     len = strlen(prompt_buf);   // length of prompt before cut off at 1=st arg.
@@ -666,15 +670,15 @@ void enhmon_rnv(void)
  */
 void enhmon_wnv(void)
 {
+    int i,n;
     unsigned char b = 0x00;
     unsigned char bank = 0;
     uint16_t addr = 0x0000;
     uint16_t nvaddr = 0x000e;
-    int i,n;
 
     if (!RTCDETECTED) {
-      enhmon_prnerror(ERROR_NORTC);
-      return;
+        enhmon_prnerror(ERROR_NORTC);
+        return;
     }
 
     i=3;
@@ -864,18 +868,28 @@ void prn_decbinhex(char *dec, char *bin, char *hex)
  */
 void enhmon_dec2hexbin()
 {
-      char *hexval = ibuf1;
-      char *binval = ibuf2;
+    int i, j;
+    char *hexval = ibuf1;
+    char *binval = ibuf2;
 
-      if (strlen(prompt_buf) > 5) {
-        strcpy(hexval,
-            ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_HEX));
-        strcpy(binval,
-            ultoa((unsigned long)atol(prompt_buf+5), ibuf3, RADIX_BIN));
-        prn_decbinhex(prompt_buf + 5, binval, hexval);
-      } else {
+    if (strlen(prompt_buf) > 5) {
+        i = adv2nxttoken(5);
+        adv2nextspc(i);
+        j = i;
+        // validate if proper decimal value
+        while (prompt_buf[j] != 0) {
+            if (prompt_buf[j] < 48 || prompt_buf[j] > 57) {
+                enhmon_prnerror(ERROR_DECVALEXP);
+                return;
+            }
+            j++;
+        }
+        ultoa((unsigned long)atol(prompt_buf + i), hexval, RADIX_HEX);
+        ultoa((unsigned long)atol(prompt_buf + i), binval, RADIX_BIN);
+        prn_decbinhex(prompt_buf + i, binval, hexval);
+    } else {
         enhmon_prnerror(ERROR_DECVALEXP);
-      }
+    }
 }
 
 /*
@@ -883,33 +897,33 @@ void enhmon_dec2hexbin()
  */
 void enhmon_hex2decbin(void)
 {
+      int i, j;
       char *decval = ibuf1;
       char *binval = ibuf2;
       int dv = 0;
-      int i, j;
 
       if (strlen(prompt_buf) > 5) {
-        i = adv2nxttoken(5);
-        adv2nextspc(i);
-        j = i;
-        // validate if proper hexadecimal value
-        while (*(prompt_buf + j) != 0) {
-          if (*(prompt_buf + j) < 48
-              || (*(prompt_buf + j) > 57 && *(prompt_buf + j) < 65)
-              || (*(prompt_buf + j) > 70 && *(prompt_buf + j) < 97)
-              || *(prompt_buf + j) > 102
-            ) {
-              enhmon_prnerror(ERROR_HEXVALEXP);
-              return;
+          i = adv2nxttoken(5);
+          adv2nextspc(i);
+          j = i;
+          // validate if proper hexadecimal value
+          while (prompt_buf[j] != 0) {
+              if (prompt_buf[j] < 48
+                  || (prompt_buf[j] > 57 && prompt_buf[j] < 65)
+                  || (prompt_buf[j] > 70 && prompt_buf[j] < 97)
+                  || prompt_buf[j] > 102
+                 ) {
+                  enhmon_prnerror(ERROR_HEXVALEXP);
+                  return;
+              }
+              j++;
           }
-          j++;
-        }
-        dv = hex2int(prompt_buf + i);
-        strcpy(decval, utoa((unsigned int)dv, ibuf3, RADIX_DEC));
-        strcpy(binval, utoa((unsigned int)dv, ibuf3, RADIX_BIN));
-        prn_decbinhex(decval, binval, prompt_buf + i);
+          dv = hex2int(prompt_buf + i);
+          utoa((unsigned int)dv, decval, RADIX_DEC);
+          utoa((unsigned int)dv, binval, RADIX_BIN);
+          prn_decbinhex(decval, binval, prompt_buf + i);
       } else {
-        enhmon_prnerror(ERROR_HEXVALEXP);
+          enhmon_prnerror(ERROR_HEXVALEXP);
       }
 }
 
@@ -918,34 +932,34 @@ void enhmon_hex2decbin(void)
  */
 void enhmon_bin2hexdec(void)
 {
+    int i, j, k;
     char *hexval = ibuf1;
     char *decval = ibuf2;
     int pos = 0;
     int dv = 0;
-    int i, j, k;
 
     if (strlen(prompt_buf) > 5) {
-      i = adv2nxttoken(5);
-      adv2nextspc(i);
-      pos = strlen(prompt_buf + i) - 1;
-      j = i;
-      // convert binary to decimal
-      while (*(prompt_buf + j) != 0) {
-        // validate if proper binary digit
-        if (*(prompt_buf + j) != '1'  && *(prompt_buf + j) != '0') {
-            enhmon_prnerror(ERROR_BINVALEXP);
-            return;
+        i = adv2nxttoken(5);
+        adv2nextspc(i);
+        pos = strlen(prompt_buf + i) - 1;
+        j = i;
+        // convert binary to decimal
+        while (prompt_buf[j] != 0) {
+            // validate if proper binary digit
+            if (prompt_buf[j] != '1'  && prompt_buf[j] != '0') {
+                enhmon_prnerror(ERROR_BINVALEXP);
+                return;
+            }
+            k = ((prompt_buf[j] == '1') ? 1 : 0);
+            dv += k * power(2, pos);
+            pos--;
+            j++;
         }
-        k = ((*(prompt_buf + j) == '1') ? 1 : 0);
-        dv += k * power(2, pos);
-        pos--;
-        j++;
-      }
-      strcpy(hexval, utoa((unsigned int)dv, ibuf3, RADIX_HEX));
-      strcpy(decval, utoa((unsigned int)dv, ibuf3, RADIX_DEC));
-      prn_decbinhex(decval, prompt_buf + i, hexval);
+        utoa((unsigned int)dv, hexval, RADIX_HEX);
+        utoa((unsigned int)dv, decval, RADIX_DEC);
+        prn_decbinhex(decval, prompt_buf + i, hexval);
     } else {
-      enhmon_prnerror(ERROR_BINVALEXP);
+        enhmon_prnerror(ERROR_BINVALEXP);
     }
 }
 
