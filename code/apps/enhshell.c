@@ -114,6 +114,14 @@
  *
  * 2/20/2018
  *  Reformatting code. Refactoring. Trimming.
+ *  Function pause_sec() refactored to use timer variable updated in IRQ
+ *  rather than polling RTC for time.
+ *  Unfortunately the code produced by the compiler is longer after this
+ *  even though the C-code is more compact after refactoring.
+ *  NOTE: After another thought I decided to get rid of functions
+ *        pause_sec() and enhsh_delay() as they are not really needed anymore
+ *        since I dropped the screen clock and sleep commands from the
+ *        program. So - gone.
  *
  *  ..........................................................................
  *
@@ -175,8 +183,8 @@ enum cmdcodes
 };
 
 const int ver_major = 3;
-const int ver_minor = 0;
-const int ver_build = 1;
+const int ver_minor = 1;
+const int ver_build = 0;
 
 #if defined(LCD_EN)
 const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
@@ -204,6 +212,7 @@ enum eErrors {
     ERROR_NOEXTBRAM,
     ERROR_BANKNUM,
     ERROR_CHECKARGS,
+    ERROR_BADCMD,
     ERROR_UNKNOWN
 };
 
@@ -214,6 +223,7 @@ const char *ga_errmsg[7] =
     "No BRAM detected.",
     "Bank# expected value: 0..7.",
     "Check command arguments.",
+    "Invalid command.",
     "Unknown."
 };
 
@@ -274,8 +284,8 @@ char    ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 
 struct  ds1685_clkdata	clkdata;
 
-void    enhsh_pause(uint16_t delay);
-void    pause_sec(uint16_t delay);
+//void    enhsh_pause(uint16_t delay);
+//void    pause_sec(uint16_t delay);
 void    enhsh_getline(void);
 void    enhsh_parse(void);
 void    enhsh_help(void);
@@ -353,16 +363,35 @@ void enhsh_prnerror(int errnum)
 }
 
 /* pause */
+/************
 void enhsh_pause(uint16_t delay)
 {
     int i = 0;
 
-    for(i=0; i < delay; i++);
+    for(; i < delay; i++);
 }
+***********/
 
-/* pause specified # of seconds */
-void pause_sec(uint16_t delay)
+/*
+ * Pause specified # of seconds.
+ * NOTE: Flush the Rx buffer before calling this function.
+ */
+//void pause_sec(uint16_t delay)
+/************************
 {
+    // current timer + number of seconds * 64 will be
+    // the number we wait for
+    unsigned long t64hz = *TIMER64HZ + delay * 64;
+
+    if (RTCDETECTED) {
+        while (*TIMER64HZ < t64hz) {
+            enhsh_pause(200);   // wait some cycles
+            if (kbhit()) break; // possible to interrupt from keyboard
+        }
+    }
+    *******************/
+    // Code above actually compiles to bigger image than the code below.
+    /***************
     unsigned int currsec = 0, nsec = delay;
 
     if (RTCDETECTED) {
@@ -370,7 +399,7 @@ void pause_sec(uint16_t delay)
         while (nsec > 0) {
 
             currsec = clkdata.seconds;
-            /* wait 1 second */
+            // wait 1 second
             while (currsec == clkdata.seconds) {
 
                 enhsh_pause(200);
@@ -382,12 +411,13 @@ void pause_sec(uint16_t delay)
                                 // this function
         }
     }
-}
+    ******************/
+//}
 
 /* get line of text from input */
 void enhsh_getline(void)
 {
-    memset(prompt_buf,0,PROMPTBUF_SIZE);
+    memset(prompt_buf, 0, PROMPTBUF_SIZE);
     gets(prompt_buf);
     puts("\n\r");
 }
@@ -555,7 +585,7 @@ void enhsh_execmem(void)
 
 void enhsh_version(void)
 {
-    strcpy(ibuf1, itoa(ver_major, ibuf3, RADIX_DEC));
+    itoa(ver_major, ibuf1, RADIX_DEC);
     strcat(ibuf1, ".");
     strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
     strcat(ibuf1, ".");
@@ -614,7 +644,7 @@ int hexchar2int(char c)
  */
 int power(int base, int exp)
 {
-    int i = 0;
+    int i = 1;
     int ret = base;
 
     if (exp == 0)
@@ -623,7 +653,7 @@ int power(int base, int exp)
         ret = base;
     else
     {
-        for (i=1; i<exp; i++)
+        for (; i<exp; i++)
         {
             ret = ret * base;
         }
@@ -1180,7 +1210,7 @@ int enhsh_exec(void)
         case CMD_NULL:
             break;
         case CMD_UNKNOWN:
-            puts("Invalid command.\n\r");
+            enhsh_prnerror(ERROR_BADCMD);
             break;
         case CMD_CLS:
             enhsh_cls();
@@ -1289,7 +1319,7 @@ void enh_shell(void)
 
 void enhsh_banner(void)
 {
-    pause_sec(2);
+    //pause_sec(2);
     while (kbhit()) getc(); // flush RX buffer
     memset(prompt_buf, 0, PROMPTBUF_SIZE);
     puts("\n\r\n\r");
@@ -1310,9 +1340,9 @@ void enhsh_banner(void)
  */
 void enhsh_showtmct(void)
 {
-    unsigned long tmr64;
+    unsigned long tmr64 = *TIMER64HZ;
 
-    tmr64 = *TIMER64HZ;
+    //tmr64 = *TIMER64HZ;
     strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
     strcat(ibuf1, " $");
     strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_HEX));
