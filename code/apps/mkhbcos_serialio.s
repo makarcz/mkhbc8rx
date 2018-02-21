@@ -20,6 +20,12 @@
 ;       Replaced local MKHBCOS definitions with ones coming from
 ;       "mkhbcos_ml.inc".
 ;
+;   2018-02-21
+;       In this implementation, functions 'getc', 'getchar' and 'fgets' are
+;       identical. I replaced duplicate code with a jump to a common
+;       procedure 'getcharacter'.
+;       Got rid of function mos_puts().
+;
 ;-----------------------------------------------------------------------------
 
 .include "mkhbcos_ml.inc"
@@ -30,24 +36,25 @@
 
 ; code
 
-.export _mos_puts,_puts,_putchar,_gets,_getchar,_getc,_fgetc,_kbhit
+.export _puts,_putchar,_gets,_getchar,_getc,_fgetc,_kbhit
+;_mos_puts
 ;,_read
 
-.segment "CODE"
+;.segment "CODE"
 
-.proc _mos_puts: near
+;.proc _mos_puts: near
 
-.segment "CODE"
+;.segment "CODE"
 
-	ldy #$01
-	jsr ldaxysp
-	sta mos_StrPtr
-	stx mos_StrPtr+1
-	jsr mos_CallPuts
-	jsr incsp2
-	rts
+;	ldy #$01
+;	jsr ldaxysp
+;	sta mos_StrPtr
+;	stx mos_StrPtr+1
+;	jsr mos_CallPuts
+;	jsr incsp2
+;	rts
 
-.endproc
+;.endproc
 
 .proc _puts: near
 
@@ -105,9 +112,10 @@ gets_end:
 
 .segment "CODE"
 
-	jsr mos_CallGetCh
-	ldx #$00
-	rts
+    jmp getcharacter
+	;jsr mos_CallGetCh
+	;ldx #$00
+	;rts
 
 .endproc
 
@@ -115,9 +123,10 @@ gets_end:
 
 .segment "CODE"
 
-	jsr mos_CallGetCh
-	ldx #$00
-	rts
+    jmp getcharacter
+	;jsr mos_CallGetCh
+	;ldx #$00
+	;rts
 
 .endproc
 
@@ -125,9 +134,10 @@ gets_end:
 
 .segment "CODE"
 
-	jsr mos_CallGetCh
-	ldx #$00
-	rts
+    jmp getcharacter
+	;jsr mos_CallGetCh
+	;ldx #$00
+	;rts
 
 .endproc
 
@@ -140,3 +150,11 @@ gets_end:
 	rts
 
 .endproc
+
+.segment "CODE"
+
+getcharacter:
+
+    jsr mos_CallGetCh
+    ldx #$00
+    rts

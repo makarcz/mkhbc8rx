@@ -1,19 +1,19 @@
 /*
- * 
+ *
  * File: hello.c
- * 
+ *
  * Purpose: Hello World demo program to run under MKHBCOS
  *          (M.O.S. derivative).
  *          Program demonstrates I/O, LCD and ANSI terminal
  *          API of mkhbcos.lib library.
- *          
+ *
  * Author: Marek Karcz
  *
  * NOTE:
  *
  * GVIM
  * set tabstop=4 shiftwidth=4 expandtab
- * 
+ *
  */
 
 #include <stdlib.h>
@@ -31,7 +31,7 @@ uint16_t n = UINT16_MAX;
 
 void my_puts (char *s)
 {
-	mos_puts(s);
+	puts(s);
 }
 
 void test_speed_lcd(uint16_t n)
@@ -78,7 +78,7 @@ int main (void)
 {
 	uint16_t iter = UINT16_MAX;
 	int i, n;
-	
+
 	my_reset_scr_attr();
 	ansi_set_colors(ANSI_COL_BLACK, ANSI_COL_YELLOW);
 	ansi_cls();
@@ -99,12 +99,12 @@ int main (void)
 	puts("\n\r");
 	ansi_blinkon();
 	my_puts(hello);
-	my_reset_scr_attr();	
+	my_reset_scr_attr();
 	LCD_INIT;
 	lcd_cursorctrl(1,1);	// turn on blinking cursor on LCD
 	lcd_puts("   MKHBC-8-R1   ", LCD_LINE_1);
 	lcd_puts("  Hello World! ", LCD_LINE_2);
-	mos_puts("It sure feels good to code in 'C' for g'old MOS 6502!\n\r");
+	puts("It sure feels good to code in 'C' for g'old MOS 6502!\n\r");
 	ansi_boldon();
 	puts("Enter text:");
 	my_reset_scr_attr();

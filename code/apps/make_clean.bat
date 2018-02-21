@@ -25,9 +25,12 @@ rem
 rem Feb 20 2018
 rem    Added clock program to delete list.
 rem
+rem Feb 21 2018
+rem    Added romlib program to delete list.
+rem
 del *.o
 del *.lst
 del *.map
 del *_prg.txt
 del enhshell hello microchess test1 testansi tinybasic tinybas022 d2hb date
-del setdt enhmon clock
+del setdt enhmon clock romlib

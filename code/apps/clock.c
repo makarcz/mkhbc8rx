@@ -56,7 +56,6 @@ void clock_version(void);
 void clock_show(void);
 void clock_banner(void);
 void pause_sec64(uint16_t delay);
-void clock_pause(uint16_t delay);
 
 void clock_version(void)
 {
@@ -163,17 +162,6 @@ void pause_sec64(uint16_t delay)
             // Intentionally EMPTY
         }
     }
-}
-
-/*
- *  Pause for some unspecified # of cycles.
- *  Argument 'delay' is the pause time.
- */
-void clock_pause(uint16_t delay)
-{
-    int i = 0;
-
-    for(; i < delay; i++);
 }
 
 /////////////////////////// M A I N    F U N C T I O N //////////////////////

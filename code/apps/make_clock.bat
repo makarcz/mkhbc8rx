@@ -22,7 +22,7 @@ rem
 cl65 -t none --cpu 6502 --config mkhbcoslib.cfg -l -m clock.map clock.c mkhbcos.lib
 rem
 
-echo Generating terminal program loading script "date_prg.txt" ...
+echo Generating terminal program loading script "clock_prg.txt" ...
 rem
 rem command below will build hex load file with
 rem suppressed all zeroes lines and will put
