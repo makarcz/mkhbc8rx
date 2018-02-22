@@ -20,16 +20,16 @@ rem
 rem build library mkhbcrom.lib
 rem
 echo      Delete objects ...
-del mkhbcos_init.o mkhbcos_serialio.o mkhbcos_ds1685.o
+del mkhbcos_fmware.o mkhbcos_serialio.o mkhbcos_ds1685.o
 echo      Assemble/compile source code ...
 cc65 -t none --cpu 6502 mkhbcos_ansi.c
 ca65 mkhbcos_ansi.s
 del mkhbcos_ansi.s
-ca65 mkhbcos_init.s
+ca65 mkhbcos_fmware.s
 ca65 mkhbcos_serialio.s
 ca65 mkhbcos_ds1685.s -l
 echo      Update library ...
-ar65 a mkhbcrom.lib mkhbcos_init.o mkhbcos_serialio.o mkhbcos_ansi.o mkhbcos_ds1685.o
+ar65 a mkhbcrom.lib mkhbcos_fmware.o mkhbcos_serialio.o mkhbcos_ansi.o mkhbcos_ds1685.o
 
 
 echo Building application "romlib" ...

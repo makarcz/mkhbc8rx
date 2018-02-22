@@ -1,10 +1,24 @@
 /*
  *
  * File: romlib.c
+ * Purpose: Entry point for mkhbcrom.lib library functions.
+ * Author: (C) Marek Karcz 2018. All rights reserved.
  *
- * Purpose: Entry point for mkhbcrom.lib library.
+ * Theory of operation:
  *
- * Author: Marek Karcz
+ *  A chunk of monolithic code in ROM with useful functionality and system
+ *  functions. Access to library functions is provided by a single entry point
+ *  function (main). Library function is selected by providing it's code
+ *  in offset 0 of RAM designated exchange area (EXCHRAM). Arguments are
+ *  passed in following the function code memory addresses.
+ *
+ *   *EXCHRAM - function code
+ *   *(EXCHRAM+1), *(EXCHRAM+2) - pointer to arguments
+ *   *(EXCHRAM+2), *(EXCHRAM+3) - pointer to return values
+ *
+ *  TO DO:
+ *      Add useful functions to this program until entire EPROM free memory
+ *      is filled up.
  *
  */
 
@@ -109,6 +123,8 @@ void date_show(void)
 
 	strcat(ibuf2, "\r\n");
 	puts(ibuf2);
+
+    *(uint16_t *)(EXCHRAM+3) = (uint16_t)&clkdata;
 }
 
 /*
@@ -181,29 +197,32 @@ void date_set(unsigned char setdt)
 int main (void)
 {
     char func_code = EXCHRAM[0];    // function code (0-255)
-    char *strptr = (char *)(EXCHRAM[2] * 256 + EXCHRAM[1]);
-    unsigned int *addr = (unsigned int *)(EXCHRAM + 3);
+    uint16_t argptr = EXCHRAM[2] * 256 + EXCHRAM[1];
+    uint16_t retptr = EXCHRAM[4] * 256 + EXCHRAM[3];
 
     switch(func_code) {
-        case 0: // Function #0 : print greeting.
-            puts("Hello World from MKHBC-8-R2!\n\r");
+        case 0: // Function #0 : Print information about library.
+            puts("MKHBCROM library 1.2.0.\n\r");
+            puts("(C) Marek Karcz 2018. All rights reserved.\n\r");
             break;
-        case 1: // Function #1 : show date / time.
+        case 1: // Function #1 : Print date / time.
             date_show();
             break;
-        case 2: // Function #2 : print string
-            // EXCHRAM + 1, EXCHRAM + 2 : address of string
-            puts(strptr);
+        case 2: // Function #2 : Print string from address set in
+                // EXCHRAM + 1, EXCHRAM + 2.
+            puts((const char *)argptr);
             break;
-        case 3: // Function #3 : enter string from keyboard and copy to
-                //               address
-            gets(strptr);
-            memmove((void *)addr, (void *)strptr, strlen(strptr));
-        case 4: // Function #4 : interactive function to set date / time.
+        case 3: // Function #3 : Enter string from keyboard and copy to
+                //               address set in EXCHRAM+1, EXCHRAM+2
+            gets((char *)argptr);
+            *(uint16_t *)(EXCHRAM+3) = argptr;
+            break;
+        case 4: // Function #4 : Interactive function to set date / time.
             date_set(1);
+            date_show();
             break;
         default:
-            puts("Unknown function.\n\r");
+            puts("ERROR (MKHBCROM Library): Unknown function.\n\r");
             break;
     }
 
