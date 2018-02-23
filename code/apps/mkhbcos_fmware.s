@@ -91,7 +91,7 @@ FuncCodeRetPtr  =   $0C03
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 5
-VerMnt      = 0
+VerMnt      = 1
 
 ; 6502 CPU
 
@@ -285,12 +285,12 @@ DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
     ; Header
 TxtHeader:
 	.BYTE	"MKHBC-8-R2, MOS 6502 system "
-    .ifdef Debug
-        .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt,".DBG"
-    .else
-        .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
-    .endif
-        .BYTE   ", motherboard variant.",                       $0d, $0a
+.ifdef Debug
+    .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt,".DBG"
+.else
+    .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
+.endif
+    .BYTE   ", motherboard variant.",                           $0d, $0a
     .BYTE   "(C) 2012-2018 Marek Karcz. All rights reserved.",  $0d, $0a
     .BYTE   "6502 SBC Meadow Operating System 1.02",            $0D, $0A
     .BYTE   "(C) 1993-2002 Scott Chidester",                    $0d, $0a
@@ -308,18 +308,21 @@ TxtPrompt:
     ; Help
 TxtHelp:
     .BYTE   $0D,$0A
-    .BYTE   " w <addr> <data> [data] ...  Write data to address",$0D,$0A
-    .BYTE   " r <addr>[-addr] [+]         Read address range",$0D,$0A
-    .BYTE   "                             + - ascii dump",$D,$0A
-    .BYTE   " x <addr>                    Execute at address",$0D,$0A
-    .BYTE   " c                           Continue from NMI event",$0D,$0A
-    .BYTE   " d                           Demo ",'"',"Hello, world!",'"'," program",$0D,$0A
-    .BYTE   " t                           Print date / time",$0D,$0A
-    .BYTE   " s                           Set date / time",$0D,$0A
-    .BYTE   " m <dest-addr> <src-addr>    Copy memory",$0D,$0A
-    .BYTE   "All values hex, addr is 4 characters and data is 2,",      $0D,$0A
-    .BYTE   "separated by exactly one space; parameters are <required>",$0D,$0A
-    .BYTE   "or [optional]. Use lower case.",                 $0D,$0A,$0D,$0A,0
+    .BYTE   " w <addr> <data> [data] ... Write data to address",$0D,$0A
+    .BYTE   " r <addr>[-addr] [+]        Read address range",$0D,$0A
+    .BYTE   "                            + - ascii dump",$D,$0A
+    .BYTE   " x <addr>                   Execute at address",$0D,$0A
+    .BYTE   " c                          Continue from NMI event",$0D,$0A
+    .BYTE   " d                          Demo ",'"',"Hello, world!",'"'
+    .BYTE   " program",$0D,$0A
+    .BYTE   " t                          Print date / time",$0D,$0A
+    .BYTE   " s                          Set date / time",$0D,$0A
+    .BYTE   " m <dest> <src> <size>      Copy memory",$0D,$0A
+    .BYTE   "All values hex, addr, dest, src, size are 4 characters and data"
+    .BYTE   $0D,$0A
+    .BYTE   "is 2, separated by exactly one space; parameters are <required>"
+    .BYTE   $0D,$0A
+    .BYTE   "or [optional]. Use lower case.", $0D,$0A,$0D,$0A,0
 
 TxtNoStack:
     .BYTE   "Can''t continue; need a valid stack frame from NMI.",$0D,$0A,0
@@ -411,7 +414,7 @@ MOSCmdLoc:
     .WORD   MOSMemCpy
 
 ; Number of commands
-MOSCmdNum   =   9
+MOSCmdNum   =   $09
 
 NMIJUMP:
 
@@ -1322,14 +1325,17 @@ MOSReadMemGetEndAddr:
 
     ; Make end address inclusive (by adding one)
     inc ArrayPtr4               ; Increment the lo byte
-    bne MOSReadMemRow
+    bne MOSReadMemGet3rdArg
     inc ArrayPtr4+1             ; And cover the case where a carry is required
 
     ; todo... some checking-- that the end address is at least one more
+MOSReadMemGet3rdArg:
 
     lda #' '
     cmp PromptLine+11           ; looking for 3-rd argument
-    bne MOSReadMemJustHex
+    beq MOSReadMemChk3rdArg
+    jmp MOSReadMemRow
+MOSReadMemChk3rdArg:
     lda #'+'
     cmp PromptLine+12           ; check if canonical dump flag
     beq MOSReadMemCanonical     ; yes, user wants hex + ascii dump
@@ -1337,31 +1343,35 @@ MOSReadMemGetEndAddr:
 
 MOSReadMemCanonical:
 
+    ; setup function code (canonical memory dump : hex + ascii)
     lda #FuncCodeMemDump
     sta FuncCodeReg
-    lda ArrayPtr3
+    ; setup arguments pointer to point at FuncCodeArgPtr+4
+    lda #<(FuncCodeArgPtr+4)
     sta FuncCodeArgPtr
-    lda ArrayPtr3+1
+    lda #>(FuncCodeArgPtr+4)
     sta FuncCodeArgPtr+1
+    ; copy list of arguments starting at address FuncCodeArgPtr+4
+    lda ArrayPtr3
+    sta FuncCodeArgPtr+4
+    lda ArrayPtr3+1
+    sta FuncCodeArgPtr+5
     lda ArrayPtr4
-    sta FuncCodeArgPtr+2
+    sta FuncCodeArgPtr+6
     lda ArrayPtr4+1
-    sta FuncCodeArgPtr+3
+    sta FuncCodeArgPtr+7
+    ; call rom library function
     jsr RomLibFunc
     rts
 
-MOSReadMemJustHex:
-
-    jmp MOSReadMemRow
-
-MOSReadMemPage:           ; confirmed no 2-nd address and no optional '+'
+MOSReadMemPage:           ; confirmed no 2-nd address
     ; No second address means display one page. First, copy start to end
     lda ArrayPtr3
     sta ArrayPtr4
     lda ArrayPtr3+1
     sta ArrayPtr4+1
     inc ArrayPtr4+1             ; Increment the hi byte of the end address
-
+    ; check if there is optional argument for canonical dump
     lda #' '                ; Space in 7th col indicates possible optional '+'
     cmp PromptLine+6        ; as 2-nd argument
     bne MOSReadMemRow       ; not a space, just do page dump
@@ -1512,8 +1522,6 @@ MOSSetDtTm:
 
 ; ------------------- Copy memory command ---------------------
 MOSMemCpy:
-    lda #FuncCodeMemCpy
-    sta FuncCodeReg
     ; Verify 2nd char is space
     lda #' '
     cmp PromptLine+1
@@ -1529,9 +1537,9 @@ MOSMemCpy1:
     jsr Hex2Word
     ; Move ArrayPtr1 to FuncCodeArgPtr (this is the destination address)
     lda ArrayPtr1
-    sta FuncCodeArgPtr
+    sta FuncCodeArgPtr+4
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+1
+    sta FuncCodeArgPtr+5
     ; Get src addr into FuncCodeArgPtr+2
     lda #' '                ; check if space
     cmp PromptLine+6
@@ -1543,9 +1551,34 @@ MOSMemCpy1:
     jsr Hex2Word
     ; Move ArrayPtr1 to FuncCodeArgPtr+2 (this is the source address)
     lda ArrayPtr1
-    sta FuncCodeArgPtr+2
+    sta FuncCodeArgPtr+6
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+3
+    sta FuncCodeArgPtr+7
+    ; and finally get bytes count to copy
+    lda #' '
+    cmp PromptLine+11
+    beq MOSMemCpy2
+    jmp ProcessNoFmt
+MOSMemCpy2:
+    lda #PromptLine+12
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    jsr Hex2Word
+    ; Move ArrayPtr1 to FuncCodeArgPtr+4 (this is the bytes count to copy)
+    lda ArrayPtr1
+    sta FuncCodeArgPtr+8
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+9
+    ; now setup pointer to the arguments
+    lda #<(FuncCodeArgPtr+4)
+    sta FuncCodeArgPtr
+    lda #>(FuncCodeArgPtr+4)
+    sta FuncCodeArgPtr+1
+    ; set the function code (memory copy)
+    lda #FuncCodeMemCpy
+    sta FuncCodeReg
+    ; and call rom library function
     jsr RomLibFunc
     rts
 

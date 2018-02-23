@@ -19,6 +19,15 @@
  * 2/22/2018
  *  Added copy memory and canonical memory dump.
  *
+ * ---------------------------------------------------------------------------
+ * TODO:
+ *  - add memory bank switch function.
+ *      NOTE: There may be not enough memory to do it, but this is important
+ *              function. If memory can't be scrambled, try to replace one
+ *              of the existing unsused or less important functions.
+ *              E.g.: function #2, print string is not very useful.
+ *
+ * ---------------------------------------------------------------------------
  */
 
 #include <stdlib.h>
@@ -40,6 +49,11 @@
 #define EXCHRAM         ((unsigned char *)0x0C00)
 #define EXCHSIZE        0xFF
 
+struct ds1685_clkdata	clkdata;
+
+char txtbuf[TXTBUF_SIZE];
+char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
+
 const char *daysofweek[8] =
 {
     "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
@@ -52,12 +66,6 @@ const char *monthnames[13] =
     "Jul", "Aug", "Sep",
     "Oct", "Nov", "Dec"
 };
-
-struct ds1685_clkdata	clkdata;
-
-char txtbuf[TXTBUF_SIZE];
-char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
-
 
 void date_show(void);
 void date_set(unsigned char setdt);
@@ -257,13 +265,13 @@ void memory_dump(uint16_t staddr, uint16_t enaddr)
 
 int main (void)
 {
-    char func_code = EXCHRAM[0];    // function code (0-255)
+    unsigned char func_code = EXCHRAM[0];    // function code (0-255)
     uint16_t argptr = EXCHRAM[2] * 256 + EXCHRAM[1];
     uint16_t retptr = EXCHRAM[4] * 256 + EXCHRAM[3];
 
     switch(func_code) {
         case 0: // Function #0 : Print information about library.
-            puts("MKHBCROM library 1.2.0.\n\r");
+            puts("MKHBCROM library 1.3.2.\n\r");
             puts("(C) Marek Karcz 2018. All rights reserved.\n\r");
             break;
         case 1: // Function #1 : Print date / time.
@@ -285,7 +293,7 @@ int main (void)
         case 5: // Function #5 : Copy memory.
             memmove((void *)PEEKW(argptr),
                     (void *)PEEKW(argptr + 2),
-                    PEEKW(argptr+2) - PEEKW(argptr));
+                    PEEKW(argptr + 4));
             break;
         case 6: // Function #6 : Canonical memory dump.
             memory_dump(PEEKW(argptr), PEEKW(argptr + 2));
