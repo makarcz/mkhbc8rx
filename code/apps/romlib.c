@@ -16,15 +16,15 @@
  *   *(EXCHRAM+1), *(EXCHRAM+2) - pointer to arguments
  *   *(EXCHRAM+2), *(EXCHRAM+3) - pointer to return values
  *
- *  TO DO:
- *      Add useful functions to this program until entire EPROM free memory
- *      is filled up.
+ * 2/22/2018
+ *  Added copy memory and canonical memory dump.
  *
  */
 
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <peekpoke.h>
 #include "mkhbcos_ml.h"
 #include "mkhbcos_serialio.h"
 #include "mkhbcos_ansi.h"
@@ -39,9 +39,6 @@
 #define RADIX_BIN       2
 #define EXCHRAM         ((unsigned char *)0x0C00)
 #define EXCHSIZE        0xFF
-
-char txtbuf[TXTBUF_SIZE];
-char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 
 const char *daysofweek[8] =
 {
@@ -58,8 +55,13 @@ const char *monthnames[13] =
 
 struct ds1685_clkdata	clkdata;
 
+char txtbuf[TXTBUF_SIZE];
+char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
+
+
 void date_show(void);
 void date_set(unsigned char setdt);
+void memory_dump(uint16_t staddr, uint16_t enaddr);
 
 /*
  * Read date/time from DS1685 IC and output to the console.
@@ -194,6 +196,65 @@ void date_set(unsigned char setdt)
 		ds1685_settime	(&clkdata);
 }
 
+/*
+ * Canonical memory dump.
+ */
+void memory_dump(uint16_t staddr, uint16_t enaddr)
+{
+    int i;
+    uint16_t addr = 0x0000;
+    unsigned char b = 0x00;
+
+    if (enaddr == 0x0000) {
+        enaddr = staddr + 0x0100;
+    }
+
+    while (kbhit()) getc(); // flush RX buffer
+    for (addr=staddr; addr<enaddr; addr+=16)
+    {
+        utoa(addr,ibuf1,RADIX_HEX);
+        if (strlen(ibuf1) < 4)
+        {
+            for (i=4-strlen(ibuf1); i>0; i--)
+                putchar('0');
+        }
+        puts(ibuf1);
+        puts(" : ");
+        if (addr >= IO_START && addr <= IO_END) {
+            puts ("I/O mapped range\n\r");
+            continue;
+        }
+        for (i=0; i<16; i++)
+        {
+            b = PEEK(addr+i);
+            if (b < 16) putchar('0');
+            puts(itoa(b,ibuf3,RADIX_HEX));
+            putchar(' ');
+        }
+        puts(" : ");
+        for (i=0; i<16; i++)
+        {
+            b = PEEK(addr+i);
+            if (b > 31 && b < 127)
+                putchar(b);
+            else
+                putchar('?');
+        }
+        puts("\n\r");
+        if (0xffff - enaddr <= 0x0f && addr < staddr)
+            break;
+        // interrupt from keyboard
+        if (kbhit()) {
+            if (32 == getc()) { // if SPACE,
+                while (!kbhit())  /* wait for any keypress to continue */ ;
+                getc();         // consume the key
+            } else {            // if not SPACE, break (exit) the loop
+                break;
+            }
+        }
+    }
+}
+
 int main (void)
 {
     char func_code = EXCHRAM[0];    // function code (0-255)
@@ -220,6 +281,14 @@ int main (void)
         case 4: // Function #4 : Interactive function to set date / time.
             date_set(1);
             date_show();
+            break;
+        case 5: // Function #5 : Copy memory.
+            memmove((void *)PEEKW(argptr),
+                    (void *)PEEKW(argptr + 2),
+                    PEEKW(argptr+2) - PEEKW(argptr));
+            break;
+        case 6: // Function #6 : Canonical memory dump.
+            memory_dump(PEEKW(argptr), PEEKW(argptr + 2));
             break;
         default:
             puts("ERROR (MKHBCROM Library): Unknown function.\n\r");

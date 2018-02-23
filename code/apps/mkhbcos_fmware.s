@@ -15,6 +15,10 @@
 ; 2018-02-21:
 ;	Initial revision.
 ;
+; 2018-02-22:
+;   Added new commands: print date / time, set date / time, canonical
+;   memory dump and copy memory.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -37,6 +41,7 @@
 ; Look in the map file for beginning of STARTUP segment.
 ; Provide that address to 'x' command (remember to use lower letters).
 
+RomLibFunc:
 _init:
 
 ; ---------------------------------------------------------------------------
@@ -71,9 +76,21 @@ _exit:    JSR     donelib              ; Run destructors
 ; Uncomment statement below to add compilation of extra debugging messages.
 ;Debug       = 1
 
+; Function codes for romlib and RAM exchange registers.
+FuncCodeInfo    =   $00
+FuncCodeDtTm    =   $01
+FuncCodePuts    =   $02
+FuncCodeGets    =   $03
+FuncCodeSetDtTm =   $04
+FuncCodeMemCpy  =   $05
+FuncCodeMemDump =   $06     ; canonical memory dump
+FuncCodeReg     =   $0C00
+FuncCodeArgPtr  =   $0C01
+FuncCodeRetPtr  =   $0C03
+
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
-VerMin      = 4
+VerMin      = 5
 VerMnt      = 0
 
 ; 6502 CPU
@@ -267,18 +284,17 @@ DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
 
     ; Header
 TxtHeader:
-	.BYTE	"Welcome to MKHBC-8-R2, MOS 6502 system.",          $0d,$0a
-    .BYTE   "(C) 2012-2018 Marek Karcz. All rights reserved.",  $0d,$0a
-	.BYTE   "Based on following original work:",                $0d,$0a
-    .BYTE   "6502 SBC Meadow Operating System 1.02",            $0D,$0A
-    .BYTE   "(C) 1993-2002 Scott Chidester",                    $0d,$0a
-	.BYTE	"MKHBCOS "
-.ifdef Debug
-    .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt,".DBG"
-.else
-    .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
-.endif
-    .BYTE   ", motherboard variant."
+	.BYTE	"MKHBC-8-R2, MOS 6502 system "
+    .ifdef Debug
+        .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt,".DBG"
+    .else
+        .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
+    .endif
+        .BYTE   ", motherboard variant.",                       $0d, $0a
+    .BYTE   "(C) 2012-2018 Marek Karcz. All rights reserved.",  $0d, $0a
+    .BYTE   "6502 SBC Meadow Operating System 1.02",            $0D, $0A
+    .BYTE   "(C) 1993-2002 Scott Chidester",                    $0d, $0a
+
 TxtDoubleLineFeed:
     .BYTE   $0D,$0A,$0D,$0A,0
 
@@ -292,22 +308,24 @@ TxtPrompt:
     ; Help
 TxtHelp:
     .BYTE   $0D,$0A
-    .BYTE   "Commands are:",$0D,$0A
-    .BYTE   " h                           This help screen",$0D,$0A
     .BYTE   " w <addr> <data> [data] ...  Write data to address",$0D,$0A
-    .BYTE   " r <addr>[-addr]             Read address range",$0D,$0A
+    .BYTE   " r <addr>[-addr] [+]         Read address range",$0D,$0A
+    .BYTE   "                             + - ascii dump",$D,$0A
     .BYTE   " x <addr>                    Execute at address",$0D,$0A
     .BYTE   " c                           Continue from NMI event",$0D,$0A
     .BYTE   " d                           Demo ",'"',"Hello, world!",'"'," program",$0D,$0A
-    .BYTE   "All values in hex, addr is 4 characters and data is 2,",$0D,$0A
+    .BYTE   " t                           Print date / time",$0D,$0A
+    .BYTE   " s                           Set date / time",$0D,$0A
+    .BYTE   " m <dest-addr> <src-addr>    Copy memory",$0D,$0A
+    .BYTE   "All values hex, addr is 4 characters and data is 2,",      $0D,$0A
     .BYTE   "separated by exactly one space; parameters are <required>",$0D,$0A
-    .BYTE   "or [optional]. Use lower case.",$0D,$0A,$0D,$0A,0
+    .BYTE   "or [optional]. Use lower case.",                 $0D,$0A,$0D,$0A,0
 
 TxtNoStack:
     .BYTE   "Can''t continue; need a valid stack frame from NMI.",$0D,$0A,0
 
 TxtNoCmd:
-    .BYTE   "Unrecognized command. Enter h for help.",$0D,$0A,0
+    .BYTE   "Invalid command. Enter h for help.",$0D,$0A,0
 
 TxtNoFmt:
     .BYTE   "Invalid command format. Enter h for help.",$0D,$0A,0
@@ -377,6 +395,9 @@ MOSCmdTxt:
     .BYTE   'x'
     .BYTE   'c'
     .BYTE   'd'
+    .BYTE   't'
+    .BYTE   's'
+    .BYTE   'm'
 
 MOSCmdLoc:
     .WORD   MOSHelp
@@ -385,9 +406,12 @@ MOSCmdLoc:
     .WORD   MOSExecute
     .WORD   MOSContinue
     .WORD   MOSRunDemo
+    .WORD   MOSPrintDtTm
+    .WORD   MOSSetDtTm
+    .WORD   MOSMemCpy
 
 ; Number of commands
-MOSCmdNum=6
+MOSCmdNum   =   9
 
 NMIJUMP:
 
@@ -1179,7 +1203,7 @@ MOSProcess:
 
 MOSProcess1:
     ; First letter must be a command--find it in the table
-    ldx #6
+    ldx #MOSCmdNum
 MOSProcessLoop:
     dex
     bmi MOSProcessBad
@@ -1281,7 +1305,9 @@ MOSReadMem1:
     ; Get end addr into array ptr 4
     lda #'-'                ; Dash in 7th col indicates range address to follow
     cmp PromptLine+6
-    bne MOSReadMemPage
+    beq MOSReadMemGetEndAddr
+    jmp MOSReadMemPage
+MOSReadMemGetEndAddr:
     lda #PromptLine+7       ; Get ending address
     sta StrPtr
     lda #0
@@ -1301,15 +1327,48 @@ MOSReadMem1:
 
     ; todo... some checking-- that the end address is at least one more
 
+    lda #' '
+    cmp PromptLine+11           ; looking for 3-rd argument
+    bne MOSReadMemJustHex
+    lda #'+'
+    cmp PromptLine+12           ; check if canonical dump flag
+    beq MOSReadMemCanonical     ; yes, user wants hex + ascii dump
+    jmp ProcessNoFmt            ; something wrong with command format
+
+MOSReadMemCanonical:
+
+    lda #FuncCodeMemDump
+    sta FuncCodeReg
+    lda ArrayPtr3
+    sta FuncCodeArgPtr
+    lda ArrayPtr3+1
+    sta FuncCodeArgPtr+1
+    lda ArrayPtr4
+    sta FuncCodeArgPtr+2
+    lda ArrayPtr4+1
+    sta FuncCodeArgPtr+3
+    jsr RomLibFunc
+    rts
+
+MOSReadMemJustHex:
+
     jmp MOSReadMemRow
 
-MOSReadMemPage:
+MOSReadMemPage:           ; confirmed no 2-nd address and no optional '+'
     ; No second address means display one page. First, copy start to end
     lda ArrayPtr3
     sta ArrayPtr4
     lda ArrayPtr3+1
     sta ArrayPtr4+1
     inc ArrayPtr4+1             ; Increment the hi byte of the end address
+
+    lda #' '                ; Space in 7th col indicates possible optional '+'
+    cmp PromptLine+6        ; as 2-nd argument
+    bne MOSReadMemRow       ; not a space, just do page dump
+    lda #'+'                ; check if optional '+' argument for ascii dump
+    cmp PromptLine+7
+    beq MOSReadMemCanonical ; yes, branch to canonical memory dump procedure
+    jmp ProcessNoFmt        ; something wrong with command format
 
     ; The top of the loop, for rows
 MOSReadMemRow:
@@ -1435,6 +1494,59 @@ ProcessNoFmt:
     lda #>TxtNoFmt
     sta StrPtr+1
     jsr Puts
+    rts
+
+; ---------------- Print date / time command ------------------
+MOSPrintDtTm:
+    lda #FuncCodeDtTm
+    sta FuncCodeReg
+    jsr RomLibFunc
+    rts
+
+; ----------------- Set date / time command -------------------
+MOSSetDtTm:
+    lda #FuncCodeSetDtTm
+    sta FuncCodeReg
+    jsr RomLibFunc
+    rts
+
+; ------------------- Copy memory command ---------------------
+MOSMemCpy:
+    lda #FuncCodeMemCpy
+    sta FuncCodeReg
+    ; Verify 2nd char is space
+    lda #' '
+    cmp PromptLine+1
+    beq MOSMemCpy1
+MOSMemCpyFmtErr:
+    jmp ProcessNoFmt
+MOSMemCpy1:
+    ; Get dest addr into array ptr 3
+    lda #PromptLine+2
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    jsr Hex2Word
+    ; Move ArrayPtr1 to FuncCodeArgPtr (this is the destination address)
+    lda ArrayPtr1
+    sta FuncCodeArgPtr
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+1
+    ; Get src addr into FuncCodeArgPtr+2
+    lda #' '                ; check if space
+    cmp PromptLine+6
+    bne MOSMemCpyFmtErr     ; no - error
+    lda #PromptLine+7       ; Get src address
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    jsr Hex2Word
+    ; Move ArrayPtr1 to FuncCodeArgPtr+2 (this is the source address)
+    lda ArrayPtr1
+    sta FuncCodeArgPtr+2
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+3
+    jsr RomLibFunc
     rts
 
 ;-------------------------------------------------------------------------------
