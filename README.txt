@@ -105,7 +105,10 @@ The system library function codes, arguments and return values are:
     Arguments: DestAddr, SrcAddr.
     No return values.
 6   Canonical memory dump.
-    ArgumentsL StartAddr, EndAddr.
+    Arguments: StartAddr, EndAddr.
+    No return values.
+7   Memory initialization.
+    Arguments: StartAddr, EndAddr, Value.
     No return values.
 
 Setting up all necessary registers before calling ROM library function is
