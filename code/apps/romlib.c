@@ -19,15 +19,10 @@
  * 2/22/2018
  *  Added copy memory and canonical memory dump.
  *
- * ---------------------------------------------------------------------------
- * TODO:
- *  - add memory bank switch function.
- *      NOTE: There may be not enough memory to do it, but this is important
- *              function. If memory can't be scrambled, try to replace one
- *              of the existing unsused or less important functions.
- *              E.g.: function #2, print string is not very useful.
+ * 2/23/2018
+ *  Corrected argument / return values passing in functions #1,2,3 and 4.
+ *  Added function #7 for memory initialization.
  *
- * ---------------------------------------------------------------------------
  */
 
 #include <stdlib.h>
@@ -46,7 +41,9 @@
 #define RADIX_DEC       10
 #define RADIX_HEX       16
 #define RADIX_BIN       2
-#define EXCHRAM         ((unsigned char *)0x0C00)
+#define ARGRETADDR      0x0C00
+#define RETPTR          (ARGRETADDR+3)
+#define EXCHRAM         ((unsigned char *)ARGRETADDR)
 #define EXCHSIZE        0xFF
 
 struct ds1685_clkdata	clkdata;
@@ -133,8 +130,6 @@ void date_show(void)
 
 	strcat(ibuf2, "\r\n");
 	puts(ibuf2);
-
-    *(uint16_t *)(EXCHRAM+3) = (uint16_t)&clkdata;
 }
 
 /*
@@ -156,43 +151,43 @@ void date_set(unsigned char setdt)
 
 	if (setdt)
 	{
-		puts("Enter the century (19,20): ");
+		puts("Century (19,20): ");
 		gets(ibuf1);
 		puts("\r\n");
 		n = atoi(ibuf1);
 		clkdata.century = (unsigned char) n;
-		puts("Enter the year (0-99): ");
+		puts("Year (0-99): ");
 		gets(ibuf1);
 		puts("\r\n");
 		n = atoi(ibuf1);
 		clkdata.year = (unsigned char) n & 0x7f;
-		puts("Enter the month (1-12): ");
+		puts("Month (1-12): ");
 		gets(ibuf1);
 		puts("\r\n");
 		n = atoi(ibuf1);
 		clkdata.month = (unsigned char) n & 0x0f;
-		puts("Enter the date (1-31): ");
+		puts("Day (1-31): ");
 		gets(ibuf1);
 		puts("\r\n");
 		n = atoi(ibuf1);
 		clkdata.date = (unsigned char) n & 0x1f;
-		puts("Enter the day (1-7, Sun=1..Sat=7): ");
+		puts("Day of week # (1-7, Sun=1): ");
 		gets(ibuf1);
 		puts("\r\n");
 		n = atoi(ibuf1);
 		clkdata.dayofweek = (unsigned char) n & 0x07;
 	}
-	puts("Enter the hours (0-23): ");
+	puts("Hours (0-23): ");
 	gets(ibuf1);
 	puts("\r\n");
 	n = atoi(ibuf1);
 	clkdata.hours = (unsigned char) n & 0x1f;
-	puts("Enter the minutes (0-59): ");
+	puts("Minutes (0-59): ");
 	gets(ibuf1);
 	puts("\r\n");
 	n = atoi(ibuf1);
 	clkdata.minutes = (unsigned char) n & 0x3f;
-	puts("Enter the seconds (0-59): ");
+	puts("Seconds (0-59): ");
 	gets(ibuf1);
 	puts("\r\n");
 	n = atoi(ibuf1);
@@ -267,39 +262,49 @@ int main (void)
 {
     unsigned char func_code = EXCHRAM[0];    // function code (0-255)
     uint16_t argptr = EXCHRAM[2] * 256 + EXCHRAM[1];
-    uint16_t retptr = EXCHRAM[4] * 256 + EXCHRAM[3];
+    uint16_t argptrv1 = PEEKW(argptr);
+    uint16_t argptrv2 = PEEKW(argptr + 2);
+    uint16_t argptrv4 = PEEKW(argptr + 4);
+    //uint16_t retptr = EXCHRAM[4] * 256 + EXCHRAM[3];
 
     switch(func_code) {
         case 0: // Function #0 : Print information about library.
-            puts("MKHBCROM library 1.3.2.\n\r");
-            puts("(C) Marek Karcz 2018. All rights reserved.\n\r");
+            puts("MKHBCROM library 1.4.0.\n\r"
+                 "(C) Marek Karcz 2018. All rights reserved.\n\r");
             break;
-        case 1: // Function #1 : Print date / time.
-            date_show();
-            break;
-        case 2: // Function #2 : Print string from address set in
-                // EXCHRAM + 1, EXCHRAM + 2.
-            puts((const char *)argptr);
+        case 2: // Function #2 : Print string from address pointed by argptr
+            puts((char *) argptrv1);
             break;
         case 3: // Function #3 : Enter string from keyboard and copy to
-                //               address set in EXCHRAM+1, EXCHRAM+2
-            gets((char *)argptr);
-            *(uint16_t *)(EXCHRAM+3) = argptr;
+                //               address pointer in retptr.
+            gets((char *) argptrv1);
+            POKEW(RETPTR, argptrv1);
             break;
         case 4: // Function #4 : Interactive function to set date / time.
             date_set(1);
+            // NOTE: statement 'break' intentionally omitted.
+        case 1: // Function #1 : Print date / time.
             date_show();
+            POKEW(RETPTR, (uint16_t) &clkdata);
             break;
         case 5: // Function #5 : Copy memory.
-            memmove((void *)PEEKW(argptr),
-                    (void *)PEEKW(argptr + 2),
-                    PEEKW(argptr + 4));
+            memmove((void *)argptrv1,
+                    (void *)argptrv2,
+                    argptrv4);
             break;
         case 6: // Function #6 : Canonical memory dump.
-            memory_dump(PEEKW(argptr), PEEKW(argptr + 2));
+            memory_dump(argptrv1, argptrv2);
+            break;
+        case 7: // Function #7 : Initialize memory with value.
+                //               argptr - pointer to start address
+                //               argptr + 2 - pointer to end address
+                //               argptr + 4 - pointer to value
+            memset((void *) argptrv1,
+                   (int) argptrv4,
+                   (size_t) (argptrv2 - argptrv1));
             break;
         default:
-            puts("ERROR (MKHBCROM Library): Unknown function.\n\r");
+            puts("ERROR: Unknown function.\n\r");
             break;
     }
 

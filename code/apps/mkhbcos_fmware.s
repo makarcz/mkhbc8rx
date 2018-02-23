@@ -19,6 +19,12 @@
 ;   Added new commands: print date / time, set date / time, canonical
 ;   memory dump and copy memory.
 ;
+; 2018-02-23
+;   Added 'b' command: select / show BRAM bank#.
+;   Added 'i' command: memory initialize.
+;   Deleted 'd' command (Hello World demo).
+;   Trimmed some messages and help text.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -77,21 +83,19 @@ _exit:    JSR     donelib              ; Run destructors
 ;Debug       = 1
 
 ; Function codes for romlib and RAM exchange registers.
-FuncCodeInfo    =   $00
 FuncCodeDtTm    =   $01
-FuncCodePuts    =   $02
-FuncCodeGets    =   $03
 FuncCodeSetDtTm =   $04
 FuncCodeMemCpy  =   $05
 FuncCodeMemDump =   $06     ; canonical memory dump
+FuncCodeMemInit =   $07
 FuncCodeReg     =   $0C00
 FuncCodeArgPtr  =   $0C01
 FuncCodeRetPtr  =   $0C03
 
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
-VerMin      = 5
-VerMnt      = 1
+VerMin      = 6
+VerMnt      = 0
 
 ; 6502 CPU
 
@@ -308,17 +312,17 @@ TxtPrompt:
     ; Help
 TxtHelp:
     .BYTE   $0D,$0A
-    .BYTE   " w <addr> <data> [data] ... Write data to address",$0D,$0A
-    .BYTE   " r <addr>[-addr] [+]        Read address range",$0D,$0A
-    .BYTE   "                            + - ascii dump",$D,$0A
-    .BYTE   " x <addr>                   Execute at address",$0D,$0A
-    .BYTE   " c                          Continue from NMI event",$0D,$0A
-    .BYTE   " d                          Demo ",'"',"Hello, world!",'"'
-    .BYTE   " program",$0D,$0A
-    .BYTE   " t                          Print date / time",$0D,$0A
-    .BYTE   " s                          Set date / time",$0D,$0A
-    .BYTE   " m <dest> <src> <size>      Copy memory",$0D,$0A
-    .BYTE   "All values hex, addr, dest, src, size are 4 characters and data"
+    .BYTE   "w <adr> <dat> [dat] ... Write data to address",$0D,$0A
+    .BYTE   "r <adr>[-<adr>] [+]     Read address range "
+    .BYTE   "(+ - ascii dump)",$D,$0A
+    .BYTE   "m <dst> <src> <size>    Copy memory",$0D,$0A
+    .BYTE   "i <adr>-<adr> dat       Initialize memory",$0D,$0A
+    .BYTE   "b [$00..$07]            Show / select memory bank.",$0D,$0A
+    .BYTE   "x <add>                 Execute at address",$0D,$0A,$0D,$0A
+    .BYTE   "c   Continue from NMI event",$0D,$0A
+    .BYTE   "t   Print date / time",$0D,$0A
+    .BYTE   "s   Set date / time",$0D,$0A,$0D,$0A
+    .BYTE   "All values hex, adr, dst, src, size are 4 characters and dat"
     .BYTE   $0D,$0A
     .BYTE   "is 2, separated by exactly one space; parameters are <required>"
     .BYTE   $0D,$0A
@@ -328,19 +332,17 @@ TxtNoStack:
     .BYTE   "Can''t continue; need a valid stack frame from NMI.",$0D,$0A,0
 
 TxtNoCmd:
-    .BYTE   "Invalid command. Enter h for help.",$0D,$0A,0
-
 TxtNoFmt:
-    .BYTE   "Invalid command format. Enter h for help.",$0D,$0A,0
+    .BYTE   "Command ERROR. Enter h for help.",$0D,$0A,0
 
 TxtNmiEvent:
     .BYTE   $0D,$0A,"NMI event.",$0D,$0A,0
 
 TxtRTCDevice:
-    .BYTE   "RTC device DS-1685 ",0
+    .BYTE   "RTC DS-1685 ",0
 
 TxtExtRAM:
-    .BYTE   "Extended RAM in $8000-$BFFF range ",0
+    .BYTE   "BRAM $8000-$BFFF ",0
 
 TxtFound:
     .BYTE   "found.",$0D,$0A,0
@@ -382,11 +384,6 @@ TxtRegReport:
 TxtPFlags:
     .BYTE   "nv-bdizc"
 
-TxtDemo:
-    .BYTE   "w 0400 a9 0c 85 e0 a9 04 85 e1 20 f6 ff 60 48 65 6c 6c",$0D
-    .BYTE   "w 0410 6f 2c 20 77 6f 72 6c 64 21 0d 0a 00",$0D
-    .BYTE   "x 0400",$0D,0
-
 ;-------------------------------------------------------------------------------
 ; MOS Command prompt intrinsic command tables
 ;-------------------------------------------------------------------------------
@@ -397,10 +394,11 @@ MOSCmdTxt:
     .BYTE   'r'
     .BYTE   'x'
     .BYTE   'c'
-    .BYTE   'd'
     .BYTE   't'
     .BYTE   's'
     .BYTE   'm'
+    .BYTE   'b'
+    .BYTE   'i'
 
 MOSCmdLoc:
     .WORD   MOSHelp
@@ -408,13 +406,14 @@ MOSCmdLoc:
     .WORD   MOSReadMem
     .WORD   MOSExecute
     .WORD   MOSContinue
-    .WORD   MOSRunDemo
     .WORD   MOSPrintDtTm
     .WORD   MOSSetDtTm
     .WORD   MOSMemCpy
+    .WORD   MOSRamBank
+    .WORD   MOSMemInit
 
 ; Number of commands
-MOSCmdNum   =   $09
+MOSCmdNum   =   $0a
 
 NMIJUMP:
 
@@ -1481,21 +1480,6 @@ MOSContinueNoStack:
     jsr Puts
     rts
 
-    ; --- The "Demo" command ---
-MOSRunDemo:
-    ldy #0
-    sei                     ; Disable interrupts
-MOSRunDemoLoop:
-    lda TxtDemo,y           ; Get character for commands to run
-    beq MOSRunDemoDone      ; Stop on string's null termination
-    jsr MOSRunDemoHackPt    ; Insert character artificially into receive buffer
-    iny                     ; Next command character
-    jmp MOSRunDemoLoop
-
-MOSRunDemoDone:
-    cli                     ; On return, MOS prompt will think the user entered
-    rts                     ;  the commands to run the demo.
-
 ;-------------------------
 ; Incorrect command format
 ProcessNoFmt:
@@ -1518,6 +1502,30 @@ MOSSetDtTm:
     lda #FuncCodeSetDtTm
     sta FuncCodeReg
     jsr RomLibFunc
+    rts
+
+; ------------- Show / select RAM bank command ----------------
+MOSRamBank:
+    lda #' '
+    cmp PromptLine+1
+    bne MOSRamBankShow
+    ; select RAM bank
+    lda #PromptLine+2
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    ldx #0
+    jsr Hex2Byte
+    lda ArrayPtr1
+    jsr BankedRamSel
+    ; show RAM bank
+MOSRamBankShow:
+    lda RamBankNum
+    jsr PutHex
+    lda #$0D
+    jsr PutCh
+    lda #$0A
+    jsr PutCh
     rts
 
 ; ------------------- Copy memory command ---------------------
@@ -1579,6 +1587,67 @@ MOSMemCpy2:
     lda #FuncCodeMemCpy
     sta FuncCodeReg
     ; and call rom library function
+    jsr RomLibFunc
+    rts
+
+; ------------------- Init memory command ---------------------
+; i hhhh-hhhh hh
+MOSMemInit:
+    ; check command format
+    lda #'-'
+    cmp PromptLine+6
+    beq MOSMemInit1
+MOSMemInitFmtErr:
+    jmp ProcessNoFmt
+MOSMemInit1:
+    lda #' '
+    cmp PromptLine+11
+    bne MOSMemInitFmtErr
+MOSMemInit2:
+    lda #' '
+    cmp PromptLine+1
+    bne MOSMemInitFmtErr
+    ; format good
+    ; get start addr
+    lda #PromptLine+2
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    jsr Hex2Word
+    lda ArrayPtr1
+    sta FuncCodeArgPtr+4
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+5
+    ; get end addr
+    lda #PromptLine+7
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    jsr Hex2Word
+    lda ArrayPtr1
+    sta FuncCodeArgPtr+6
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+7
+    ; get init value
+    lda #PromptLine+12
+    sta StrPtr
+    lda #0
+    sta StrPtr+1
+    tax
+    jsr Hex2Byte
+    lda ArrayPtr1
+    sta FuncCodeArgPtr+8
+    lda ArrayPtr1+1
+    sta FuncCodeArgPtr+9
+    ; now setup pointer to the arguments
+    lda #<(FuncCodeArgPtr+4)
+    sta FuncCodeArgPtr
+    lda #>(FuncCodeArgPtr+4)
+    sta FuncCodeArgPtr+1
+    ; set function code
+    lda #FuncCodeMemInit
+    sta FuncCodeReg
+    ; call rom library function
     jsr RomLibFunc
     rts
 
@@ -1867,9 +1936,6 @@ UartXmtDis:
 UartReceive:
     ; Get the character from the Uart to X
     lda UartRx
-
-MOSRunDemoHackPt:           ; This is a hack entry point for the demo
-
     ; Check for queue full; as with the transmit side, if the in-ptr is one less
     ; than the out-ptr, the queue is full (this wastes one byte but if I used
     ; that byte then it would be difficult to distinguish between a totally
