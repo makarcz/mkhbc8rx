@@ -23,6 +23,9 @@
  *  Corrected argument / return values passing in functions #1,2,3 and 4.
  *  Added function #7 for memory initialization.
  *
+ * 2/24/2018
+ *  Bug fixes. Refactoring.
+ *
  */
 
 #include <stdlib.h>
@@ -34,6 +37,10 @@
 #include "mkhbcos_ansi.h"
 #include "mkhbcos_ds1685.h"
 
+extern uint16_t _LIBARG_START__; //, __LIBARG_SIZE__;
+extern uint16_t _IO0_START__;
+extern uint16_t _IO7_START__, _IO7_SIZE__;
+
 #define TXTBUF_SIZE     80
 #define IBUF1_SIZE      30
 #define IBUF2_SIZE      30
@@ -41,10 +48,12 @@
 #define RADIX_DEC       10
 #define RADIX_HEX       16
 #define RADIX_BIN       2
-#define ARGRETADDR      0x0C00
-#define RETPTR          (ARGRETADDR+3)
-#define EXCHRAM         ((unsigned char *)ARGRETADDR)
-#define EXCHSIZE        0xFF
+#define EXCHRAM         ((unsigned char *)&_LIBARG_START__)
+#define ARGPTR          (EXCHRAM+1)
+#define RETPTR          (EXCHRAM+3)
+#define START_IO        ((unsigned)&_IO0_START__)
+#define SIZE_IO         ((unsigned)&_IO7_SIZE__)
+#define END_IO          (((unsigned)&_IO7_START__) + SIZE_IO)
 
 struct ds1685_clkdata	clkdata;
 
@@ -73,63 +82,64 @@ void memory_dump(uint16_t staddr, uint16_t enaddr);
  */
 void date_show(void)
 {
-  if (!RTCDETECTED) {
-      puts("ERROR: RTC not detected.\n\r");
-      return;
-  }
+    if (RTCDETECTED) {
 
-	ds1685_rdclock (&clkdata);
+        ds1685_rdclock (&clkdata);
 
-	memset(ibuf1, 0, IBUF1_SIZE);
-	memset(ibuf2, 0, IBUF2_SIZE);
-	memset(ibuf3, 0, IBUF3_SIZE);
-	strcpy(ibuf1, "Date: ");
+        memset(ibuf1, 0, IBUF1_SIZE);
+        memset(ibuf2, 0, IBUF2_SIZE);
+        //memset(ibuf3, 0, IBUF3_SIZE);
+        strcpy(ibuf1, "Date: ");
 
-	if (clkdata.dayofweek > 0 && clkdata.dayofweek < 8)	{
-	   strcat(ibuf1, daysofweek[clkdata.dayofweek-1]);
-	}	else {
+        if (clkdata.dayofweek > 0 && clkdata.dayofweek < 8)	{
+           strcat(ibuf1, daysofweek[clkdata.dayofweek-1]);
+        } else {
 
-	   strcat(ibuf1, "???");
-	}
-	strcat(ibuf1, ", ");
-	strcat(ibuf1, itoa(clkdata.date, ibuf3, RADIX_DEC));
-	strcat(ibuf1, " ");
-	if (clkdata.month > 0 && clkdata.month < 13)
-		strcat(ibuf1, monthnames[clkdata.month-1]);
-	else
-		strcat(ibuf1, "???");
-	strcat(ibuf1, " ");
-	if (clkdata.century < 100)
-		strcat(ibuf1, itoa(clkdata.century, ibuf3, RADIX_DEC));
-	else
-		strcat(ibuf1, "??");
-	if(clkdata.year < 100)
-	{
-		if (clkdata.year < 10)
-			strcat(ibuf1, "0");
-		strcat(ibuf1, itoa(clkdata.year, ibuf3, RADIX_DEC));
-	}
-	else
-		strcat(ibuf1, "??");
+            strcat(ibuf1, "???");
+        }
+        strcat(ibuf1, ", ");
+        strcat(ibuf1, itoa(clkdata.date, ibuf3, RADIX_DEC));
+        strcat(ibuf1, " ");
+        if (clkdata.month > 0 && clkdata.month < 13)
+            strcat(ibuf1, monthnames[clkdata.month-1]);
+        else
+            strcat(ibuf1, "???");
+        strcat(ibuf1, " ");
+        if (clkdata.century < 100)
+            strcat(ibuf1, itoa(clkdata.century, ibuf3, RADIX_DEC));
+        else
+            strcat(ibuf1, "??");
+        if(clkdata.year < 100)
+        {
+            if (clkdata.year < 10)
+                strcat(ibuf1, "0");
+            strcat(ibuf1, itoa(clkdata.year, ibuf3, RADIX_DEC));
+        }
+        else
+            strcat(ibuf1, "??");
 
-	strcat(ibuf1, "\r\n");
-	puts(ibuf1);
+        strcat(ibuf1, "\r\n");
+        puts(ibuf1);
 
-	strcpy(ibuf2, "Time: ");
-	if (clkdata.hours < 10)
-		strcat(ibuf2, "0");
-	strcat(ibuf2, itoa(clkdata.hours, ibuf3, RADIX_DEC));
-	strcat(ibuf2, " : ");
-	if (clkdata.minutes < 10)
-		strcat(ibuf2, "0");
-	strcat(ibuf2, itoa(clkdata.minutes, ibuf3, RADIX_DEC));
-	strcat(ibuf2, " : ");
-	if (clkdata.seconds < 10)
-		strcat(ibuf2, "0");
-	strcat(ibuf2, itoa(clkdata.seconds, ibuf3, RADIX_DEC));
+        strcpy(ibuf2, "Time: ");
+        if (clkdata.hours < 10)
+            strcat(ibuf2, "0");
+        strcat(ibuf2, itoa(clkdata.hours, ibuf3, RADIX_DEC));
+        strcat(ibuf2, " : ");
+        if (clkdata.minutes < 10)
+            strcat(ibuf2, "0");
+        strcat(ibuf2, itoa(clkdata.minutes, ibuf3, RADIX_DEC));
+        strcat(ibuf2, " : ");
+        if (clkdata.seconds < 10)
+            strcat(ibuf2, "0");
+        strcat(ibuf2, itoa(clkdata.seconds, ibuf3, RADIX_DEC));
 
-	strcat(ibuf2, "\r\n");
-	puts(ibuf2);
+        strcat(ibuf2, "\r\n");
+        puts(ibuf2);
+        POKEW(RETPTR, (uint16_t) &clkdata);
+    } else {
+        puts("RTC not detected.\n\r");
+    }
 }
 
 /*
@@ -142,61 +152,61 @@ void date_show(void)
  */
 void date_set(unsigned char setdt)
 {
-	uint16_t n = 0;
+    uint16_t n = 0;
 
-  if (!RTCDETECTED) {
-      puts("ERROR: RTC not detected.\n\r");
-      return;
-  }
+    if (RTCDETECTED) {
 
-	if (setdt)
-	{
-		puts("Century (19,20): ");
-		gets(ibuf1);
-		puts("\r\n");
-		n = atoi(ibuf1);
-		clkdata.century = (unsigned char) n;
-		puts("Year (0-99): ");
-		gets(ibuf1);
-		puts("\r\n");
-		n = atoi(ibuf1);
-		clkdata.year = (unsigned char) n & 0x7f;
-		puts("Month (1-12): ");
-		gets(ibuf1);
-		puts("\r\n");
-		n = atoi(ibuf1);
-		clkdata.month = (unsigned char) n & 0x0f;
-		puts("Day (1-31): ");
-		gets(ibuf1);
-		puts("\r\n");
-		n = atoi(ibuf1);
-		clkdata.date = (unsigned char) n & 0x1f;
-		puts("Day of week # (1-7, Sun=1): ");
-		gets(ibuf1);
-		puts("\r\n");
-		n = atoi(ibuf1);
-		clkdata.dayofweek = (unsigned char) n & 0x07;
-	}
-	puts("Hours (0-23): ");
-	gets(ibuf1);
-	puts("\r\n");
-	n = atoi(ibuf1);
-	clkdata.hours = (unsigned char) n & 0x1f;
-	puts("Minutes (0-59): ");
-	gets(ibuf1);
-	puts("\r\n");
-	n = atoi(ibuf1);
-	clkdata.minutes = (unsigned char) n & 0x3f;
-	puts("Seconds (0-59): ");
-	gets(ibuf1);
-	puts("\r\n");
-	n = atoi(ibuf1);
-	clkdata.seconds = (unsigned char) n & 0x3f;
+        if (setdt)
+        {
+            puts("Century (19,20): ");
+            gets(ibuf1);
+            puts("\r\n");
+            n = atoi(ibuf1);
+            clkdata.century = (unsigned char) n;
+            puts("Year (0-99): ");
+            gets(ibuf1);
+            puts("\r\n");
+            n = atoi(ibuf1);
+            clkdata.year = (unsigned char) n & 0x7f;
+            puts("Month (1-12): ");
+            gets(ibuf1);
+            puts("\r\n");
+            n = atoi(ibuf1);
+            clkdata.month = (unsigned char) n & 0x0f;
+            puts("Day (1-31): ");
+            gets(ibuf1);
+            puts("\r\n");
+            n = atoi(ibuf1);
+            clkdata.date = (unsigned char) n & 0x1f;
+            puts("Day of week # (1-7, Sun=1): ");
+            gets(ibuf1);
+            puts("\r\n");
+            n = atoi(ibuf1);
+            clkdata.dayofweek = (unsigned char) n & 0x07;
+        }
+        puts("Hours (0-23): ");
+        gets(ibuf1);
+        puts("\r\n");
+        n = atoi(ibuf1);
+        clkdata.hours = (unsigned char) n & 0x1f;
+        puts("Minutes (0-59): ");
+        gets(ibuf1);
+        puts("\r\n");
+        n = atoi(ibuf1);
+        clkdata.minutes = (unsigned char) n & 0x3f;
+        puts("Seconds (0-59): ");
+        gets(ibuf1);
+        puts("\r\n");
+        n = atoi(ibuf1);
+        clkdata.seconds = (unsigned char) n & 0x3f;
 
-	if (setdt)
-		ds1685_setclock (&clkdata);
-	else
-		ds1685_settime	(&clkdata);
+        if (setdt)
+            ds1685_setclock (&clkdata);
+        else
+            ds1685_settime	(&clkdata);
+    } else {
+        puts("RTC not detected.\n\r");
+    }
 }
 
 /*
@@ -223,7 +233,8 @@ void memory_dump(uint16_t staddr, uint16_t enaddr)
         }
         puts(ibuf1);
         puts(" : ");
-        if (addr >= IO_START && addr <= IO_END) {
+        if (addr >= START_IO && addr < END_IO) {
+
             puts ("I/O mapped range\n\r");
             continue;
         }
@@ -261,19 +272,22 @@ void memory_dump(uint16_t staddr, uint16_t enaddr)
 int main (void)
 {
     unsigned char func_code = EXCHRAM[0];    // function code (0-255)
-    uint16_t argptr = EXCHRAM[2] * 256 + EXCHRAM[1];
+    uint16_t argptr = PEEKW(ARGPTR); // EXCHRAM[2] * 256 + EXCHRAM[1];
     uint16_t argptrv1 = PEEKW(argptr);
     uint16_t argptrv2 = PEEKW(argptr + 2);
-    uint16_t argptrv4 = PEEKW(argptr + 4);
+    uint16_t argptrv3 = PEEKW(argptr + 4);
     //uint16_t retptr = EXCHRAM[4] * 256 + EXCHRAM[3];
 
     switch(func_code) {
         case 0: // Function #0 : Print information about library.
-            puts("MKHBCROM library 1.4.0.\n\r"
+            puts("MKHBCROM library 1.4.3.\n\r"
                  "(C) Marek Karcz 2018. All rights reserved.\n\r");
             break;
+        case 1: // Function #1 : Print date / time.
+            date_show();
+            break;
         case 2: // Function #2 : Print string from address pointed by argptr
-            puts((char *) argptrv1);
+            puts((const char *) argptrv1);
             break;
         case 3: // Function #3 : Enter string from keyboard and copy to
                 //               address pointer in retptr.
@@ -282,15 +296,12 @@ int main (void)
             break;
         case 4: // Function #4 : Interactive function to set date / time.
             date_set(1);
-            // NOTE: statement 'break' intentionally omitted.
-        case 1: // Function #1 : Print date / time.
             date_show();
-            POKEW(RETPTR, (uint16_t) &clkdata);
             break;
         case 5: // Function #5 : Copy memory.
-            memmove((void *)argptrv1,
-                    (void *)argptrv2,
-                    argptrv4);
+            memmove((void *) argptrv1,
+                    (void *) argptrv2,
+                    (size_t) argptrv3);
             break;
         case 6: // Function #6 : Canonical memory dump.
             memory_dump(argptrv1, argptrv2);
@@ -300,7 +311,7 @@ int main (void)
                 //               argptr + 2 - pointer to end address
                 //               argptr + 4 - pointer to value
             memset((void *) argptrv1,
-                   (int) argptrv4,
+                   (int)    argptrv3,
                    (size_t) (argptrv2 - argptrv1));
             break;
         default:

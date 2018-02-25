@@ -32,13 +32,18 @@ echo      Update library ...
 ar65 a mkhbcrom.lib mkhbcos_fmware.o mkhbcos_serialio.o mkhbcos_ansi.o mkhbcos_ds1685.o
 
 
-echo Building application "romlib" ...
+echo Building image "romlib.BIN" ...
 rem
-rem build romlib app.
+rem build romlib.BIN, an EPROM image (binary format, 8 kB, e.g.: 27C64).
 rem
-cl65 -t none --cpu 6502 --config romlib.cfg -l -m romlib.map romlib.c mkhbcrom.lib
+cl65 -t none --cpu 6502 --config romlib.cfg -o romlib.BIN -l -m romlib.map romlib.c mkhbcrom.lib
 rem
 
 echo Done.
+echo ----------------------------------------------------------------
+echo Image:                romlib.BIN
+echo Map file:             romlib.map
+echo Listing:              romlib.lst
+echo Startup code listing: mkhbcos_fmware.lst
 
 pause prompt

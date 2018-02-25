@@ -3,12 +3,13 @@
 ; File:		mkhbcos_fmware.s
 ; Author:	Marek Karcz
 ;
-; Original work: cc65 documentation/customization tutorial
-;
 ; Purpose:
 ;
-;	 Startup code for MKHBC-8-R2 hobby computer.
-;    Includes full code of M.O.S.
+;	 Startup code / firmware for MKHBC-8-R2 hobby computer.
+;    Compiles under CC65.
+;    Includes full code of MKHBCOS, which is an operating system / memory
+;    monitor based on M.O.S. - Meadow Operating System, original work by
+;    Scott Chidester for his SBC.
 ;
 ; Revision history:
 ;
@@ -25,6 +26,10 @@
 ;   Deleted 'd' command (Hello World demo).
 ;   Trimmed some messages and help text.
 ;
+; 2018-02-24
+;   Bug fixes, adjustments of welcome and help messages.
+;   Refactoring.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -32,6 +37,15 @@
 
 .export   __STARTUP__ : absolute = 1        ; Mark as startup
 .import   __RAM_START__, __RAM_SIZE__       ; Linker generated
+.import   __IO0_START__, __IO0_SIZE__
+.import   __IO1_START__, __IO1_SIZE__
+.import   __IO2_START__, __IO2_SIZE__
+.import   __IO3_START__, __IO3_SIZE__
+.import   __IO4_START__, __IO4_SIZE__
+.import   __IO5_START__, __IO5_SIZE__
+.import   __IO6_START__, __IO6_SIZE__
+.import   __IO7_START__, __IO7_SIZE__
+.import   __LIBARG_START__, __LIBARG_SIZE__
 
 .import    copydata, zerobss, initlib, donelib
 
@@ -45,7 +59,7 @@
 ; This is the entry point of mkhbcrom library.
 ; Enter the function code and arguments into the RAM exchange area.
 ; Look in the map file for beginning of STARTUP segment.
-; Provide that address to 'x' command (remember to use lower letters).
+; Provide that address to 'x' command (remember to use lower case letters).
 
 RomLibFunc:
 _init:
@@ -82,20 +96,26 @@ _exit:    JSR     donelib              ; Run destructors
 ; Uncomment statement below to add compilation of extra debugging messages.
 ;Debug       = 1
 
-; Function codes for romlib and RAM exchange registers.
-FuncCodeDtTm    =   $01
-FuncCodeSetDtTm =   $04
-FuncCodeMemCpy  =   $05
+; Function codes for romlib and addresses of arg / ret exchange registers.
+; The functions below are implemented in romlib.c and require protocol of
+; setting up function code and argument pointer (and arguments themselves)
+; before calling 'JSR RomLibFunc'.
+;
+FuncCodeDtTm    =   $01     ; show date / time
+FuncCodeSetDtTm =   $04     ; set date / time
+FuncCodeMemCpy  =   $05     ; copy memory
 FuncCodeMemDump =   $06     ; canonical memory dump
-FuncCodeMemInit =   $07
-FuncCodeReg     =   $0C00
-FuncCodeArgPtr  =   $0C01
-FuncCodeRetPtr  =   $0C03
+FuncCodeMemInit =   $07     ; initialize memory
+FuncCodeReg     =   __LIBARG_START__     ; put function code in this register
+FuncCodeArgPtr  =   __LIBARG_START__+1   ; put ptr to arg list in this reg.
+FuncCodeRetPtr  =   __LIBARG_START__+3   ; this is where return values ptr
+                                         ; is left by the function (if any)
+FuncCodeArgs    =   __LIBARG_START__+5   ; actual args list starts here
 
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 6
-VerMnt      = 0
+VerMnt      = 4
 
 ; 6502 CPU
 
@@ -110,16 +130,16 @@ RamEnd      = RamBase+$7FFF 	;with no VRAM option
 
 ; I/O expansion addresses
 
-IOSTART = $C000
+;IOSTART = __IO0_START__ ; $C000
 
-IO0 = IOSTART   ; $C000 - $C0FF
-IO1 = IO0+256   ; $C100 - $C1FF
-IO2 = IO1+256   ; $C200 - $C2FF
-IO3 = IO2+256   ; $C300 - $C3FF
-IO4 = IO3+256   ; $C400 - $C4FF
-IO5 = IO4+256   ; $C500 - $C5FF
-IO6 = IO5+256   ; $C600 - $C6FF
-IO7 = IO6+256   ; $C700 - $C7FF
+IO0 =   __IO0_START__   ;IOSTART   ; $C000 - $C0FF
+IO1 =   __IO1_START__   ;IO0+256   ; $C100 - $C1FF
+IO2 =   __IO2_START__   ;IO1+256   ; $C200 - $C2FF
+IO3 =   __IO3_START__   ;IO2+256   ; $C300 - $C3FF
+IO4 =   __IO4_START__   ;IO3+256   ; $C400 - $C4FF
+IO5 =   __IO5_START__   ;IO4+256   ; $C500 - $C5FF
+IO6 =   __IO6_START__   ;IO5+256   ; $C600 - $C6FF
+IO7 =   __IO7_START__   ;IO6+256   ; $C700 - $C7FF
 
 ; 6850 Asynchronous Communications Interface Adapter (ACIA)
 
@@ -295,9 +315,12 @@ TxtHeader:
     .BYTE   $30+VerMaj,'.',$30+VerMin,'.',$30+VerMnt
 .endif
     .BYTE   ", motherboard variant.",                           $0d, $0a
-    .BYTE   "(C) 2012-2018 Marek Karcz. All rights reserved.",  $0d, $0a
+    .BYTE   "(C) 2012-2018 Marek Karcz.",                       $0d, $0a
     .BYTE   "6502 SBC Meadow Operating System 1.02",            $0D, $0A
-    .BYTE   "(C) 1993-2002 Scott Chidester",                    $0d, $0a
+    .BYTE   "(C) 1993-2002 Scott Chidester.",                   $0d, $0a
+    .BYTE   "All rights reserved.",                             $0d, $0a
+    .BYTE   $0d, $0a
+    .BYTE   "Type 'h' for help."
 
 TxtDoubleLineFeed:
     .BYTE   $0D,$0A,$0D,$0A,0
@@ -312,16 +335,16 @@ TxtPrompt:
     ; Help
 TxtHelp:
     .BYTE   $0D,$0A
-    .BYTE   "w <adr> <dat> [dat] ... Write data to address",$0D,$0A
-    .BYTE   "r <adr>[-<adr>] [+]     Read address range "
-    .BYTE   "(+ - ascii dump)",$D,$0A
-    .BYTE   "m <dst> <src> <size>    Copy memory",$0D,$0A
-    .BYTE   "i <adr>-<adr> dat       Initialize memory",$0D,$0A
-    .BYTE   "b [$00..$07]            Show / select memory bank.",$0D,$0A
-    .BYTE   "x <add>                 Execute at address",$0D,$0A,$0D,$0A
-    .BYTE   "c   Continue from NMI event",$0D,$0A
-    .BYTE   "t   Print date / time",$0D,$0A
-    .BYTE   "s   Set date / time",$0D,$0A,$0D,$0A
+    .BYTE   " w <adr> <dat> [dat] ... Write data to address",$0D,$0A
+    .BYTE   " r <adr>[-<adr>] [+]     Read address range "
+    .BYTE   "(+ - ascii dump)",$0D,$0A
+    .BYTE   " m <dst> <src> <size>    Copy memory",$0D,$0A
+    .BYTE   " i <adr>-<adr> <dat>     Initialize memory",$0D,$0A
+    .BYTE   " b [00..07]              Show / select memory bank.",$0D,$0A
+    .BYTE   " x <adr>                 Execute at address",$0D,$0A,$0D,$0A
+    .BYTE   " c   Continue from NMI event",$0D,$0A
+    .BYTE   " t   Print date / time",$0D,$0A
+    .BYTE   " s   Set date / time",$0D,$0A,$0D,$0A
     .BYTE   "All values hex, adr, dst, src, size are 4 characters and dat"
     .BYTE   $0D,$0A
     .BYTE   "is 2, separated by exactly one space; parameters are <required>"
@@ -1345,20 +1368,20 @@ MOSReadMemCanonical:
     ; setup function code (canonical memory dump : hex + ascii)
     lda #FuncCodeMemDump
     sta FuncCodeReg
-    ; setup arguments pointer to point at FuncCodeArgPtr+4
-    lda #<(FuncCodeArgPtr+4)
+    ; setup arguments pointer to point at FuncCodeArgs
+    lda #<FuncCodeArgs
     sta FuncCodeArgPtr
-    lda #>(FuncCodeArgPtr+4)
+    lda #>FuncCodeArgs
     sta FuncCodeArgPtr+1
-    ; copy list of arguments starting at address FuncCodeArgPtr+4
+    ; copy list of arguments starting at address FuncCodeArgs
     lda ArrayPtr3
-    sta FuncCodeArgPtr+4
+    sta FuncCodeArgs
     lda ArrayPtr3+1
-    sta FuncCodeArgPtr+5
+    sta FuncCodeArgs+1
     lda ArrayPtr4
-    sta FuncCodeArgPtr+6
+    sta FuncCodeArgs+2
     lda ArrayPtr4+1
-    sta FuncCodeArgPtr+7
+    sta FuncCodeArgs+3
     ; call rom library function
     jsr RomLibFunc
     rts
@@ -1529,7 +1552,23 @@ MOSRamBankShow:
     rts
 
 ; ------------------- Copy memory command ---------------------
+; m <dest> <src> <size>
+; m HHHH HHHH HHHH
 MOSMemCpy:
+    ; check if format of last argument correct (4-digit)
+    ; using wrong format here may lead to overwriting wrong area of memory
+    lda #0
+    cmp PromptLine+12
+    beq MOSMemCpyFmtErr
+    lda #0
+    cmp PromptLine+13
+    beq MOSMemCpyFmtErr
+    lda #0
+    cmp PromptLine+14
+    beq MOSMemCpyFmtErr
+    lda #0
+    cmp PromptLine+15
+    beq MOSMemCpyFmtErr
     ; Verify 2nd char is space
     lda #' '
     cmp PromptLine+1
@@ -1537,18 +1576,18 @@ MOSMemCpy:
 MOSMemCpyFmtErr:
     jmp ProcessNoFmt
 MOSMemCpy1:
-    ; Get dest addr into array ptr 3
+    ; Get dest addr into FuncCodeArgs
     lda #PromptLine+2
     sta StrPtr
     lda #0
     sta StrPtr+1
     jsr Hex2Word
-    ; Move ArrayPtr1 to FuncCodeArgPtr (this is the destination address)
+    ; Move ArrayPtr1 to FuncCodeArgs (this is the destination address)
     lda ArrayPtr1
-    sta FuncCodeArgPtr+4
+    sta FuncCodeArgs
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+5
-    ; Get src addr into FuncCodeArgPtr+2
+    sta FuncCodeArgs+1
+    ; Get src addr into FuncCodeArgs+1
     lda #' '                ; check if space
     cmp PromptLine+6
     bne MOSMemCpyFmtErr     ; no - error
@@ -1557,11 +1596,11 @@ MOSMemCpy1:
     lda #0
     sta StrPtr+1
     jsr Hex2Word
-    ; Move ArrayPtr1 to FuncCodeArgPtr+2 (this is the source address)
+    ; Move ArrayPtr1 to FuncCodeArgs+2 (this is the source address)
     lda ArrayPtr1
-    sta FuncCodeArgPtr+6
+    sta FuncCodeArgs+2
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+7
+    sta FuncCodeArgs+3
     ; and finally get bytes count to copy
     lda #' '
     cmp PromptLine+11
@@ -1573,15 +1612,15 @@ MOSMemCpy2:
     lda #0
     sta StrPtr+1
     jsr Hex2Word
-    ; Move ArrayPtr1 to FuncCodeArgPtr+4 (this is the bytes count to copy)
+    ; Move ArrayPtr1 to FuncCodeArgs+4 (this is the bytes count to copy)
     lda ArrayPtr1
-    sta FuncCodeArgPtr+8
+    sta FuncCodeArgs+4
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+9
-    ; now setup pointer to the arguments
-    lda #<(FuncCodeArgPtr+4)
+    sta FuncCodeArgs+5
+    ; now setup pointer to the array of arguments, which starts at index 4
+    lda #<FuncCodeArgs
     sta FuncCodeArgPtr
-    lda #>(FuncCodeArgPtr+4)
+    lda #>FuncCodeArgs
     sta FuncCodeArgPtr+1
     ; set the function code (memory copy)
     lda #FuncCodeMemCpy
@@ -1615,9 +1654,9 @@ MOSMemInit2:
     sta StrPtr+1
     jsr Hex2Word
     lda ArrayPtr1
-    sta FuncCodeArgPtr+4
+    sta FuncCodeArgs
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+5
+    sta FuncCodeArgs+1
     ; get end addr
     lda #PromptLine+7
     sta StrPtr
@@ -1625,9 +1664,9 @@ MOSMemInit2:
     sta StrPtr+1
     jsr Hex2Word
     lda ArrayPtr1
-    sta FuncCodeArgPtr+6
+    sta FuncCodeArgs+2
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+7
+    sta FuncCodeArgs+3
     ; get init value
     lda #PromptLine+12
     sta StrPtr
@@ -1636,13 +1675,13 @@ MOSMemInit2:
     tax
     jsr Hex2Byte
     lda ArrayPtr1
-    sta FuncCodeArgPtr+8
+    sta FuncCodeArgs+4
     lda ArrayPtr1+1
-    sta FuncCodeArgPtr+9
+    sta FuncCodeArgs+5
     ; now setup pointer to the arguments
-    lda #<(FuncCodeArgPtr+4)
+    lda #<FuncCodeArgs
     sta FuncCodeArgPtr
-    lda #>(FuncCodeArgPtr+4)
+    lda #>FuncCodeArgs
     sta FuncCodeArgPtr+1
     ; set function code
     lda #FuncCodeMemInit
