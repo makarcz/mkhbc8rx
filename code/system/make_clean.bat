@@ -7,9 +7,9 @@ rem
 rem    Remove all files that are product of compilation.
 rem
 rem Author: Marek Karcz (C) 2018
-rem 
+rem
 rem Revision history:
-rem 
+rem
 rem Feb 1 2018
 rem    Created
 rem
@@ -17,5 +17,5 @@ del *.o
 del *.lst
 del *.map
 del *_prg.txt
-del mkhbcos_mobo
-del mkhbcos_sbc
+rem del mkhbcos_mobo
+del mkhbcos_sbc romlib.BIN

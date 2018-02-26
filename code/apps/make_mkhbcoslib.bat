@@ -52,17 +52,18 @@ echo      Delete objects ...
 rem del crt0.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_ds1685.o
 del mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_ds1685.o
 echo      Assemble/compile source code ...
-cc65 -t none --cpu 6502 mkhbcos_lcd1602.c
-cc65 -t none --cpu 6502 mkhbcos_ansi.c
-ca65 mkhbcos_lcd1602.s
+cc65 -t none --cpu 6502 -I ..\system ..\system\mkhbcos_lcd1602.c -o mkhbcos_lcd1602.s
+cc65 -t none --cpu 6502 -I ..\system ..\system\mkhbcos_ansi.c -o mkhbcos_ansi.s
+ca65 -I ..\system mkhbcos_lcd1602.s -o mkhbcos_lcd1602.o
 del mkhbcos_lcd1602.s
-ca65 mkhbcos_ansi.s
+ca65 -I ..\system mkhbcos_ansi.s
 del mkhbcos_ansi.s
 rem ca65 crt0.s
-ca65 mkhbcos_init.s
-ca65 mkhbcos_serialio.s
-ca65 mkhbcos_lcd.s
-ca65 mkhbcos_ds1685.s -l
+ca65 mkhbcos_init.s -o mkhbcos_init.o
+ca65 -I ..\system ..\system\mkhbcos_serialio.s -o mkhbcos_serialio.o
+ca65 -I ..\system ..\system\mkhbcos_lcd.s -o mkhbcos_lcd.o
+ca65 -I ..\system ..\system\mkhbcos_ds1685.s -l -o mkhbcos_ds1685.o
+move /Y ..\system\mkhbcos_ds1685.lst .
 echo      Update library ...
 rem ar65 a mkhbcos.lib crt0.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
 ar65 a mkhbcos.lib mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
@@ -72,7 +73,7 @@ echo Building application "hello" ...
 rem
 rem build hello app.
 rem
-cl65 -t none --cpu 6502 --config mkhbcoslib.cfg -l -m hello.map hello.c mkhbcos.lib
+cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -m hello.map hello.c mkhbcos.lib
 rem
 
 rem OBSOLETE section, to be removed
@@ -107,14 +108,14 @@ rem       use -z flag. It is safer in general not to use
 rem       it, even though the program load time is much
 rem       longer with all unnecessary null bytes.
 rem
-..\bin2hex -f hello -o hello_prg.txt -w 1024 -x 1024 -z
+..\bin2hex -f hello -o hello_prg.txt -w 2816 -x 2816 -z
 
 rem
 rem command below will buid hex load file with
 rem all load statements (including lines with all zeroes)
 rem and will suppress the execute statement.
 rem
-rem bin2hex -f hello -o hello_prg.txt -w 1024 -x 1024 -s
+rem bin2hex -f hello -o hello_prg.txt -w 2816 -x 2816 -s
 
 echo Done.
 

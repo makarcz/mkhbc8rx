@@ -1,28 +1,30 @@
 echo off
 rem
-rem File: make_d2hb.bat
+rem File: makeenhshell.bat
 rem
 rem Purpose:
 rem
-rem    Build decimal to hex / bin conversion program.
+rem    Build enhshell app. from C source enhshell.c
+rem    linked with mkhbcos.lib (created originally
+rem    from supervision.lib and modified crt0.s.
 rem
-rem Author: Marek Karcz 2018
+rem Author: Marek Karcz 2012
 rem
 rem Revision history:
 rem
-rem 2/11/2018
+rem 1/22/2012
 rem    Created
 rem
 rem
 
-echo Building application "d2hb" ...
+echo Building application "enhshell" ...
 rem
-rem build d2hb app.
+rem build enhshell app.
 rem
-cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -o d2hb -m d2hb.map d2hexbin.c mkhbcos.lib
+cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -m enhshell.map enhshell.c mkhbcos.lib
 rem
 
-echo Generating terminal program loading script "d2hb_prg.txt" ...
+echo Generating terminal program loading script "enhshell_prg.txt" ...
 rem
 rem command below will build hex load file with
 rem suppressed all zeroes lines and will put
@@ -51,14 +53,14 @@ rem       use -z flag. It is safer in general not to use
 rem       it, even though the program load time is much
 rem       longer with all unnecessary null bytes.
 rem
-..\bin2hex -f d2hb -o d2hb_prg.txt -w 2816 -x 2816 -z
+..\bin2hex -f enhshell -o enhshell_prg.txt -w 2816 -x 2816 -z
 
 rem
 rem command below will buid hex load file with
 rem all load statements (including lines with all zeroes)
 rem and will suppress the execute statement.
 rem
-rem bin2hex -f d2hb -o d2hb_prg.txt -w 2816 -x 2816 -s
+rem bin2hex -f enhshell -o enhshell_prg.txt -w 2816 -x 2816 -s
 
 echo Done.
 

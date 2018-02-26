@@ -123,9 +123,18 @@
  *        since I dropped the screen clock and sleep commands from the
  *        program. So - gone.
  *
+ * 2/25/2018
+ *  Refactoring related to ROM library introduction.
+ *
  *  ..........................................................................
  *
  *  BUGS:
+ *
+ *  1) Something I didn't notice when calling ROM library function from
+ *     programs 'date' or 'clock' - when the ROM library function is called,
+ *     program doesn't return, it goes to firmware monitor. This is similar to
+ *     the problem in enhmon.c program. I wonder if this is problem of big
+ *     programs? This does not happen for all ROM library functions.
  *
  *  ..........................................................................
  */
@@ -139,6 +148,7 @@
 #include "mkhbcos_ansi.h"
 #include "mkhbcos_ml.h"
 #include "mkhbcos_ds1685.h"
+#include "romlib.h"
 
 #define IBUF1_SIZE      80
 #define IBUF2_SIZE      80
@@ -163,16 +173,12 @@ enum cmdcodes
     CMD_CLOCK,		  // LCD clock
 #endif
     CMD_READMEM,
-    CMD_RMEMENH,	  // enhanced read memory
     CMD_WRITEMEM,
     CMD_INITMEM,	  // initialize memory with value
     CMD_DATE,		    // read DS1685 RTC data
-    CMD_SETCLOCK,	  // set DS1685 time
     CMD_SETDTTM,	  // set DS1685 date and time
-//    CMD_RCLK,
     CMD_WNV,
     CMD_RNV,
-//    CMD_RTCI,
     CMD_EXECUTE,
     CMD_SHOWTMCT,   // show periodically updated (in interrupt) counter
     CMD_RAMBANK,    // select or get banked RAM bank#
@@ -183,8 +189,8 @@ enum cmdcodes
 };
 
 const int ver_major = 3;
-const int ver_minor = 1;
-const int ver_build = 0;
+const int ver_minor = 2;
+const int ver_build = 1;
 
 #if defined(LCD_EN)
 const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
@@ -192,19 +198,6 @@ const int lcdlinesel[] = {LCD_LINE_CURRENT, LCD_LINE_1, LCD_LINE_2};
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
-
-const char *daysofweek[8] =
-{
-	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
-};
-
-const char *monthnames[13] =
-{
-    "Jan", "Feb", "Mar",
-    "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep",
-    "Oct", "Nov", "Dec"
-};
 
 enum eErrors {
     ERROR_OK = 0,
@@ -228,9 +221,9 @@ const char *ga_errmsg[7] =
 };
 
 #if defined(LCD_EN)
-const char *helptext[34] =
+const char *helptext[33] =
 #else
-const char *helptext[30] =
+const char *helptext[29] =
 #endif
 {
     "\n\r",
@@ -241,35 +234,28 @@ const char *helptext[30] =
     " lcdp : print to LCD.\n\r",
 #endif
     "    r : read memory contents.\n\r",
-    "        r <hexaddr>[-hexaddr]\n\r",
+    "        r <hexaddr>[-hexaddr] [+]\n\r",
+    "        + - canonical (hex + ASCII)\n\r",
     "    w : write data to address.\n\r",
     "        w <hexaddr> <hexdata> [hexdata] ...\n\r",
     "    i : initialize memory with value.\n\r",
     "        i <hexaddr> <hexaddr> [hexdata]\n\r",
     "    x : execute at address.\n\r",
     "        x <hexaddr>\n\r",
-    "  mcp : copy memory of specified size.\n\r",
-    "        mcp <hex_src> <hex_dst> <hex_size>\n\r",
-    " date : display date/time.\n\r",
-//    " time : set time.\n\r",
-    "setdt : set date/time.\n\r",
+    "    m : copy memory of specified size.\n\r",
+    "        mcp <hex_dst> <hex_src> <hex_size>\n\r",
+    "    t : display date/time.\n\r",
+    "    s : set date/time.\n\r",
 #if defined(LCD_EN)
     "clock : run LCD clock (reset to exit).\n\r",
 #endif
-/*
-    " rclk : run console clock for # of seconds\n\r",
-    "        rclk <seconds>\n\r",
-    */
-    " dump : enhanced read memory/hex dump.\n\r",
-    "        dump <hexaddr>[ hexaddr]\n\r",
-    " wnv  : write to non-volatile RTC RAM.\n\r",
+    "  wnv : write to non-volatile RTC RAM.\n\r",
     "        wnv <bank#> <hexaddr>\n\r",
-    " rnv  : dump non-volatile RTC RAM.\n\r",
+    "  rnv : dump non-volatile RTC RAM.\n\r",
     "        rnv <bank#> [<hexaddr>]\n\r",
-//    " rtci : initialize RTC chip.\n\r",
-    " sctr : show 64 Hz counter value.\n\r",
-    " bank : see or select banked RAM bank.\n\r",
-    "        bank [<bank#(0..7)>]\n\r",
+    "  ctr : show 64 Hz counter value.\n\r",
+    "    b : see or select banked RAM bank.\n\r",
+    "        b [00..07]\n\r",
     " conv : dec/hex/bin conversion.\n\r",
     "        conv <type> <arg>\n\r",
     "        type: d2hb, h2db, b2hd\n\r",
@@ -303,24 +289,22 @@ int     hexchar2int(char c);
 int     power(int base, int exp);
 int     hex2int(const char *hexstr);
 void    enhsh_initmem(void);
-void    enhsh_rmemenh(void);
-void    enhsh_date(unsigned char rdclk);
-void    enhsh_time(unsigned char setdt);
-//void    enhsh_rclk(void);
 void    enhsh_rnv(void);
 void    enhsh_wnv(void);
-//void    enhsh_rtci(void);
 int     enhsh_exec(void);
 void    enh_shell(void);
 void    enhsh_banner(void);
 void    enhsh_showtmct(void);
-void    enhsh_rambanksel(void);
-void    enhsh_getrambank(void);
+//void    enhsh_rambanksel(void);
+//void    enhsh_getrambank(void);
 void    enhsh_conv(void);
 void    enhsh_mcp(void);
 void    enhsh_prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
+void    enhsh_bramsel(void);
+void    enhsh_prndt(void);
+void    enhsh_setdt(void);
 
 /*
  * Advance index to next token.
@@ -455,10 +439,6 @@ void enhsh_parse(void)
     {
         cmd_code = CMD_READMEM;
     }
-    else if (0 == strncmp(prompt_buf,"dump ",5))
-    {
-        cmd_code = CMD_RMEMENH;
-    }
     else if (0 == strncmp(prompt_buf,"w ",2))
     {
         cmd_code = CMD_WRITEMEM;
@@ -467,15 +447,11 @@ void enhsh_parse(void)
     {
         cmd_code = CMD_INITMEM;
     }
-    else if (0 == strncmp(prompt_buf,"date",4))
+    else if (prompt_buf[0] == 't')
     {
         cmd_code = CMD_DATE;
     }
-    else if (0 == strncmp(prompt_buf,"time",4))
-    {
-        cmd_code = CMD_SETCLOCK;
-    }
-    else if (0 == strncmp(prompt_buf,"setdt",5))
+    else if (prompt_buf[0] == 's')
     {
         cmd_code = CMD_SETDTTM;
     }
@@ -485,12 +461,6 @@ void enhsh_parse(void)
         cmd_code = CMD_CLOCK;
     }
 #endif
-/*
-    else if (0 == strncmp(prompt_buf,"rclk ",5))
-    {
-        cmd_code = CMD_RCLK;
-    }
-    */
     else if (0 == strncmp(prompt_buf,"x ",2))
     {
         cmd_code = CMD_EXECUTE;
@@ -507,17 +477,11 @@ void enhsh_parse(void)
     {
         cmd_code = CMD_RNV;
     }
-    /*
-    else if (0 == strncmp(prompt_buf,"rtci",4))
-    {
-        cmd_code = CMD_RTCI;
-    }
-    */
-    else if (0 == strncmp(prompt_buf,"sctr",4))
+    else if (0 == strncmp(prompt_buf, "ctr", 3))
     {
         cmd_code = CMD_SHOWTMCT;
     }
-    else if (0 == strncmp(prompt_buf,"bank",4))
+    else if (prompt_buf[0] == 'b')
     {
         cmd_code = CMD_RAMBANK;
     }
@@ -525,7 +489,7 @@ void enhsh_parse(void)
     {
         cmd_code = CMD_CONV;
     }
-    else if (0 == strncmp(prompt_buf,"mcp ",4))
+    else if (0 == strncmp(prompt_buf, "m ", 2))
     {
         cmd_code = CMD_MEMCPY;
     }
@@ -581,6 +545,31 @@ void enhsh_writemem(void)
 void enhsh_execmem(void)
 {
     __asm__("jsr %w", MOS_PROCEXEC);
+}
+
+void enhsh_initmem(void)
+{
+    __asm__("jsr %w", MOS_MEMINIT);
+}
+
+void enhsh_mcp(void)
+{
+    __asm__("jsr %w", MOS_MEMCPY);
+}
+
+void enhsh_bramsel(void)
+{
+    __asm__("jsr %w", MOS_BRAMSEL);
+}
+
+void enhsh_prndt(void)
+{
+    __asm__("jsr %w", MOS_PRNDT);
+}
+
+void enhsh_setdt(void)
+{
+    __asm__("jsr %w", MOS_SETDT);
 }
 
 void enhsh_version(void)
@@ -709,276 +698,6 @@ int kbhit(void)
 
 /*
  *
- * Initialize memory - command handler.
- * i startaddr endaddr val
- * E.g.: i 8000 bfff 01
- *
- */
-void enhsh_initmem(void)
-{
-    int i, tok1, tok2, tok3;
-    uint16_t staddr = 0x0000;
-    uint16_t enaddr = 0x0000;
-    int b = 256;
-    size_t count = 0;
-
-    tok1 = adv2nxttoken(2); // begin of staddr
-    i = adv2nextspc(tok1);
-    tok2 = adv2nxttoken(i); // begin of enaddr
-    i = adv2nextspc(tok2);
-    tok3 = adv2nxttoken(i); // begin of value
-    adv2nextspc(tok3);
-    if (tok2 > tok1) {
-        staddr = hex2int(prompt_buf + tok1);
-        enaddr = hex2int(prompt_buf + tok2);
-    }
-    if (enaddr > staddr && tok3 > tok2 && tok2 > tok1) {
-
-        b = hex2int(prompt_buf + tok3);
-        count = enaddr - staddr;
-        memset((void *)staddr, b, count);
-
-    } else {
-
-        enhsh_prnerror(ERROR_CHECKARGS);
-    }
-}
-
-/*
- *
- * Read memory range and output hexadecimal
- * values of memory locations as well as
- * ascii representation if applicable.
- * This function will avoid reading the I/O mapped
- * memory range to avoid undesired side effects from
- * I/O devices or memory banking register (which is
- * also sensitive to reading operations).
- *
- */
-void enhsh_rmemenh(void)
-{
-    int i;
-    uint16_t staddr = 0x0000;
-    uint16_t enaddr = 0x0000;
-    uint16_t addr = 0x0000;
-    unsigned char b = 0x00;
-
-    i = adv2nextspc(5);
-    enaddr = hex2int(prompt_buf + i);
-    staddr = hex2int(prompt_buf + 5);
-    if (enaddr == 0x0000) {
-        enaddr = staddr + 0x0100;
-    }
-
-    while (kbhit()) getc(); // flush RX buffer
-    for (addr=staddr; addr<enaddr; addr+=16)
-    {
-        utoa(addr,ibuf1,RADIX_HEX);
-        if (strlen(ibuf1) < 4)
-        {
-            for (i=4-strlen(ibuf1); i>0; i--)
-                putchar('0');
-        }
-        puts(ibuf1);
-        puts(" : ");
-        if (addr >= IO_START && addr <= IO_END) {
-            puts ("dump blocked in I/O mapped range\n\r");
-            continue;
-        }
-        for (i=0; i<16; i++)
-        {
-            b = PEEK(addr+i);
-            if (b < 16) putchar('0');
-            puts(itoa(b,ibuf3,RADIX_HEX));
-            putchar(' ');
-        }
-        puts(" : ");
-        for (i=0; i<16; i++)
-        {
-            b = PEEK(addr+i);
-            if (b > 31 && b < 127)
-                putchar(b);
-            else
-                putchar('?');
-        }
-        puts("\n\r");
-        if (0xffff - enaddr <= 0x0f && addr < staddr)
-            break;
-        // interrupt from keyboard
-        if (kbhit()) {
-            if (32 == getc()) { // if SPACE,
-                while (!kbhit())  /* wait for any keypress to continue */ ;
-                getc();         // consume the key
-            } else {            // if not SPACE, break (exit) the loop
-                break;
-            }
-        }
-    }
-}
-
-/*
- *
- * Read date/time from DS1685 IC and output to the console
- * and/or convert to string buffers ibuf1, ibuf2 for display.
- * Input: rdclk
- * 0 - do not read the actual data from DS1685 chip,
- *     just output the values in global clkdata variable.
- * 1 - Read data from DS1685 chip and output to console.
- * 2 - Read data from DS1685 chip and convert to strings ibuf1, ibuf2.
- *     (the purpose is to prepare data for LCD display).
- * 3 - Read data from DS1685 chip, do not output, do not convert to
- *     string buffers, just store in clkdata.
- *
- */
-void enhsh_date(unsigned char rdclk)
-{
-    if (!RTCDETECTED) {
-      enhsh_prnerror(ERROR_NORTC);
-      return;
-    }
-
-    if(rdclk)
-        ds1685_rdclock (&clkdata);
-
-    if (rdclk == 3)
-        return;
-
-    memset(ibuf1, 0, IBUF1_SIZE);
-    memset(ibuf2, 0, IBUF2_SIZE);
-    memset(ibuf3, 0, IBUF3_SIZE);
-    if (rdclk < 2) strcpy(ibuf1, "Date: ");
-    if (clkdata.dayofweek > 0 && clkdata.dayofweek < 8) {
-
-        if (rdclk < 2)
-            strcat(ibuf1, daysofweek[clkdata.dayofweek-1]);
-        else
-            strcpy(ibuf1, daysofweek[clkdata.dayofweek-1]);
-
-    } else {
-
-        if (rdclk < 2)
-            strcat(ibuf1, "???");
-        else
-            strcpy(ibuf1, "???");
-
-    }
-    strcat(ibuf1, ", ");
-    strcat(ibuf1, itoa(clkdata.date, ibuf3, RADIX_DEC));
-    strcat(ibuf1, " ");
-    if (clkdata.month > 0 && clkdata.month < 13)
-        strcat(ibuf1, monthnames[clkdata.month-1]);
-    else
-        strcat(ibuf1, "???");
-    strcat(ibuf1, " ");
-    if (clkdata.century < 100)
-        strcat(ibuf1, itoa(clkdata.century, ibuf3, RADIX_DEC));
-    else
-        strcat(ibuf1, "??");
-    if(clkdata.year < 100) {
-
-        if (clkdata.year < 10)
-            strcat(ibuf1, "0");
-        strcat(ibuf1, itoa(clkdata.year, ibuf3, RADIX_DEC));
-    }
-    else
-        strcat(ibuf1, "??");
-    if (rdclk < 2) {
-
-        strcat(ibuf1, "\r\n");
-        puts(ibuf1);
-    }
-
-    if (rdclk < 2)
-        strcpy(ibuf2, "Time: ");
-    else
-        strcpy(ibuf2, "  ");
-    if (clkdata.hours < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.hours, ibuf3, RADIX_DEC));
-    strcat(ibuf2, " : ");
-    if (clkdata.minutes < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.minutes, ibuf3, RADIX_DEC));
-    strcat(ibuf2, " : ");
-    if (clkdata.seconds < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.seconds, ibuf3, RADIX_DEC));
-    if (rdclk < 2)
-    {
-        strcat(ibuf2, "\r\n");
-        puts(ibuf2);
-    }
-}
-
-/*
- *
- * Prompt and set date/time in DS1685 RTC chip.
- * Input: setdt
- * 0 - do not prompt for and set date.
- * 1 - prompt for and set date and time.
- *
- */
-void enhsh_time(unsigned char setdt)
-{
-    uint16_t n = 0;
-
-    if (!RTCDETECTED) {
-      enhsh_prnerror(ERROR_NORTC);
-      return;
-    }
-
-    if (setdt)
-    {
-        puts("Enter the century (19,20): ");
-        gets(ibuf1);
-        puts("\r\n");
-        n = atoi(ibuf1);
-        clkdata.century = (unsigned char) n;
-        puts("Enter the year (0-99): ");
-        gets(ibuf1);
-        puts("\r\n");
-        n = atoi(ibuf1);
-        clkdata.year = (unsigned char) n & 0x7f;
-        puts("Enter the month (1-12): ");
-        gets(ibuf1);
-        puts("\r\n");
-        n = atoi(ibuf1);
-        clkdata.month = (unsigned char) n & 0x0f;
-        puts("Enter the date (1-31): ");
-        gets(ibuf1);
-        puts("\r\n");
-        n = atoi(ibuf1);
-        clkdata.date = (unsigned char) n & 0x1f;
-        puts("Enter the day (1-7, Sun=1..Sat=7): ");
-        gets(ibuf1);
-        puts("\r\n");
-        n = atoi(ibuf1);
-        clkdata.dayofweek = (unsigned char) n & 0x07;
-    }
-    puts("Enter the hours (0-23): ");
-    gets(ibuf1);
-    puts("\r\n");
-    n = atoi(ibuf1);
-    clkdata.hours = (unsigned char) n & 0x1f;
-    puts("Enter the minutes (0-59): ");
-    gets(ibuf1);
-    puts("\r\n");
-    n = atoi(ibuf1);
-    clkdata.minutes = (unsigned char) n & 0x3f;
-    puts("Enter the seconds (0-59): ");
-    gets(ibuf1);
-    puts("\r\n");
-    n = atoi(ibuf1);
-    clkdata.seconds = (unsigned char) n & 0x3f;
-
-    if (setdt)
-        ds1685_setclock (&clkdata);
-    else
-        ds1685_settime	(&clkdata);
-}
-
-/*
- *
  * Output date/time to LCD.
  *
  */
@@ -1010,42 +729,6 @@ void enhsh_clock(void)
     }
 }
 #endif
-
-/*
- *
- * Handle command: rclk N
- * Run date/time on console for N seconds, then quit.
- *
- */
-/*
-void enhsh_rclk(void)
-{
-    unsigned int cmdarg = 0, secs = 0;
-    int tok1;
-
-    if (!RTCDETECTED) {
-        enhsh_prnerror(ERROR_NORTC);
-        return;
-    }
-
-    tok1 = adv2nxttoken(5);
-    cmdarg = atoi(prompt_buf + tok1);
-    ansi_cls();
-    while (kbhit()) getc();  // flush rx buffer
-    while(secs < cmdarg) {
-
-        enhsh_date(1);
-        pause_sec(1);
-        secs++;
-        ansi_set_cursor(1,1);
-        if (kbhit()) {
-            getc();
-            break;
-        }
-    }
-    ansi_set_cursor(1,3);
-}
-*/
 
 /*
  * Handle command: rnv Bank#
@@ -1233,9 +916,6 @@ int enhsh_exec(void)
         case CMD_READMEM:
             enhsh_readmem();
             break;
-        case CMD_RMEMENH:
-            enhsh_rmemenh();
-            break;
         case CMD_WRITEMEM:
             enhsh_writemem();
             break;
@@ -1246,26 +926,18 @@ int enhsh_exec(void)
             enhsh_execmem();
             break;
         case CMD_DATE:
-            enhsh_date(1);
+            //enhsh_date(1);
+            enhsh_prndt();
             break;
-/*
-        case CMD_SETCLOCK:
-            enhsh_time(0);
-            break;
-*/
         case CMD_SETDTTM:
-            enhsh_time(1);
+            //enhsh_time(1);
+            enhsh_setdt();
             break;
 #if defined(LCD_EN)
         case CMD_CLOCK:
             enhsh_clock();
             break;
 #endif
-/*
-        case CMD_RCLK:
-            enhsh_rclk();
-            break;
-            */
         case CMD_HELP:
             enhsh_help();
             break;
@@ -1275,16 +947,12 @@ int enhsh_exec(void)
         case CMD_WNV:
             enhsh_wnv();
             break;
-/*
-        case CMD_RTCI:
-            enhsh_rtci();
-            break;
-*/
         case CMD_SHOWTMCT:
             enhsh_showtmct();
             break;
         case CMD_RAMBANK:
-            enhsh_rambanksel();
+            //enhsh_rambanksel();
+            enhsh_bramsel();
             break;
         case CMD_CONV:
             enhsh_conv();
@@ -1350,10 +1018,11 @@ void enhsh_showtmct(void)
     puts(ibuf1);
 }
 
-int g_bnum;
+//int g_bnum;
 /*
  * Select banked RAM bank.
  */
+/*********************
 void enhsh_rambanksel(void)
 {
     int tok1;
@@ -1383,10 +1052,11 @@ void enhsh_rambanksel(void)
 
     enhsh_getrambank();
 }
-
+**************/
 /*
  * Get current banked RAM bank #.
  */
+/**********************
 void enhsh_getrambank(void)
 {
     unsigned char rambank = 0;
@@ -1396,6 +1066,7 @@ void enhsh_getrambank(void)
     puts(utoa((unsigned int)rambank, ibuf3, RADIX_DEC));
     puts("\n\r");
 }
+*****************/
 
 /*
  * Dec/hex/bin conversion.
@@ -1424,7 +1095,6 @@ void enhsh_conv()
 
         } else if (0 == strncmp(prompt_buf + tok1, "h2db", 4)) {
             // validate if proper hexadecimal value
-            /***
             j = tok2;
             while (*(prompt_buf + j) != 0) {
                 if (*(prompt_buf + j) < 48
@@ -1436,7 +1106,7 @@ void enhsh_conv()
                     return;
                 }
                 j++;
-            } ***/
+            }
             dv = hex2int(prompt_buf + tok2);
             utoa((unsigned int)dv, decval, RADIX_DEC);
             utoa((unsigned int)dv, binval, RADIX_BIN);
@@ -1449,11 +1119,10 @@ void enhsh_conv()
             // convert binary to decimal
             while (*(prompt_buf + j) != 0) {
                 // validate if proper binary digit
-                /***
                 if (*(prompt_buf + j) != '1'  && *(prompt_buf + j) != '0') {
                     enhsh_prnerror(ERROR_CHECKARGS);
                     return;
-                }***/
+                }
                 k = ((*(prompt_buf + j) == '1') ? 1 : 0);
                 dv += k * power(2, pos);
                 pos--;
@@ -1463,10 +1132,9 @@ void enhsh_conv()
             utoa((unsigned int)dv, decval, RADIX_DEC);
             strcpy(binval, prompt_buf + tok2);
         }
-        /*** not enough memory, must live without this check for now
         else {
           enhsh_prnerror(ERROR_CHECKARGS);
-        } ***/
+        }
         puts("Dec: ");
         puts(decval);
         puts("\n\r");
@@ -1478,38 +1146,6 @@ void enhsh_conv()
         puts("\n\r");
     } else {
         enhsh_prnerror(ERROR_CHECKARGS);
-    }
-}
-
-/*
- * Handle command: mcp <hex_src> <hex_dst> <hex_size>
- * Copy provided size in bytes of non-overlapping memory from source
- * to destination.
- */
-void enhsh_mcp(void)
-{
-    int i, tok1, tok2;
-    uint16_t srcaddr = 0x0000;
-    uint16_t dstaddr = 0x0000;
-    uint16_t bytecnt = 0x0000;
-
-    // parse arguments:
-    i = adv2nxttoken(4);
-    tok1 = i;   // remember start index of srcaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    tok2 = i;   // remember start index of dstaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    if (i > tok2 && tok2 > tok1) {
-      srcaddr = hex2int(prompt_buf + tok1);
-      dstaddr = hex2int(prompt_buf + tok2);
-      bytecnt = hex2int(prompt_buf + i);
-    }
-    if (dstaddr != srcaddr && bytecnt > 0) {
-      memmove((void *)dstaddr, (void *)srcaddr, bytecnt);
-    } else {
-      enhsh_prnerror(ERROR_CHECKARGS);
     }
 }
 

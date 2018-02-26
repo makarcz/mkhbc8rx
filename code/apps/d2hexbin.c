@@ -13,6 +13,9 @@
  * 2/12/2018
  *  Extended text buffers.
  *
+ * 2/25/2018
+ *  Source code formatting, no functional changes.
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -48,30 +51,30 @@ void d2hb_dec2hexbin(void);
 /* get line of text from input */
 void d2hb_getline(void)
 {
-	memset(prompt_buf,0,PROMPTBUF_SIZE);
-	gets(prompt_buf);
-	puts("\n\r");
+    memset(prompt_buf,0,PROMPTBUF_SIZE);
+    gets(prompt_buf);
+    puts("\n\r");
 }
 
 void d2hb_version(void)
 {
-	strcpy(ibuf1, itoa(ver_major, ibuf3, RADIX_DEC));
-	strcat(ibuf1, ".");
-	strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
-	strcat(ibuf1, ".");
-	strcat(ibuf1, itoa(ver_build, ibuf3, RADIX_DEC));
-	strcat(ibuf1, "\n\r");
-	puts(ibuf1);
+    strcpy(ibuf1, itoa(ver_major, ibuf3, RADIX_DEC));
+    strcat(ibuf1, ".");
+    strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
+    strcat(ibuf1, ".");
+    strcat(ibuf1, itoa(ver_build, ibuf3, RADIX_DEC));
+    strcat(ibuf1, "\n\r");
+    puts(ibuf1);
 }
 
 void d2hb_banner(void)
 {
-  while (kbhit()) getc(); // flush RX buffer
-  puts("\n\r");
-	puts("Decimal to hexadecimal / binary conversion tool.\n\r");
-  puts("Version: ");
-  d2hb_version();
-	puts("(C) Marek Karcz 2018. All rights reserved.\n\r\n\r");
+    while (kbhit()) getc(); // flush RX buffer
+    puts("\n\r");
+    puts("Decimal to hexadecimal / binary conversion tool.\n\r");
+    puts("Version: ");
+    d2hb_version();
+    puts("(C) Marek Karcz 2018. All rights reserved.\n\r\n\r");
 }
 
 /*
@@ -79,36 +82,37 @@ void d2hb_banner(void)
  */
 void d2hb_dec2hexbin()
 {
-  char *hexval = ibuf1;
-  char *binval = ibuf2;
+    char *hexval = ibuf1;
+    char *binval = ibuf2;
 
-  strcpy(hexval, ultoa((unsigned long)atol(prompt_buf), ibuf3, RADIX_HEX));
-  strcpy(binval, ultoa((unsigned long)atol(prompt_buf), ibuf3, RADIX_BIN));
-  puts("Decimal: ");
-  puts(prompt_buf);
-  puts("\n\r");
-  puts("Hex:     ");
-  puts(hexval);
-  puts("\n\r");
-  puts("Binary:  ");
-  puts(binval);
-  puts("\n\r");
+    strcpy(hexval, ultoa((unsigned long)atol(prompt_buf), ibuf3, RADIX_HEX));
+    strcpy(binval, ultoa((unsigned long)atol(prompt_buf), ibuf3, RADIX_BIN));
+    puts("Decimal: ");
+    puts(prompt_buf);
+    puts("\n\r");
+    puts("Hex:     ");
+    puts(hexval);
+    puts("\n\r");
+    puts("Binary:  ");
+    puts(binval);
+    puts("\n\r");
 }
 
 int main(void)
 {
-  char q = 'N';
-  memset(prompt_buf,0,PROMPTBUF_SIZE);
-	d2hb_banner();
-  while (1) {
-     puts("Enter decimal number: ");
-     d2hb_getline();
-	   d2hb_dec2hexbin();
-     puts("Again? (Y/N)");
-     q = getc();
-     if (q != 'Y' && q != 'y') break;
-     puts("\n\r");
-  }
-  puts("\n\r");
-	return 0;
+    char q = 'N';
+
+    memset(prompt_buf,0,PROMPTBUF_SIZE);
+    d2hb_banner();
+    while (1) {
+        puts("Enter decimal number: ");
+        d2hb_getline();
+        d2hb_dec2hexbin();
+        puts("Again? (Y/N)");
+        q = getc();
+        if (q != 'Y' && q != 'y') break;
+        puts("\n\r");
+    }
+    puts("\n\r");
+    return 0;
 }

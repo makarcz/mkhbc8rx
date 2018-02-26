@@ -26,9 +26,20 @@
  *  Refactoring / optimization (applying CC65 coding hints).
  *  Validation if proper decimal value added in dec2hexbin conversion.
  *
+ * 2/25/2018
+ *  Refactoring related to ROM library introduction.
+ *
  *  ..........................................................................
  *
  *  BUGS:
+ *
+ *  1) Something I didn't notice when calling ROM library function from
+ *     programs 'date' or 'clock' - when the ROM library function is called,
+ *     program doesn't return, it goes to firmware monitor. This doesn't
+ *     happen for all functions. Program experienced this problem after
+ *     calling different functions between subsequent code changes and builds.
+ *     E.g.: at 1-st it used to be after canonical memory dump. Now the dump
+ *     doesn't kick back to mos> prompt, but show date / time does.
  *
  *  ..........................................................................
  */
@@ -40,6 +51,7 @@
 #include "mkhbcos_serialio.h"
 #include "mkhbcos_ml.h"
 #include "mkhbcos_ds1685.h"
+#include "romlib.h"
 
 #define IBUF1_SIZE      80
 #define IBUF2_SIZE      80
@@ -55,7 +67,6 @@ enum cmdcodes
     CMD_HELP,
     CMD_EXIT,
     CMD_READMEM,
-    CMD_RMEMENH,
     CMD_WRITEMEM,
     CMD_INITMEM,
     CMD_WNV,
@@ -66,7 +77,8 @@ enum cmdcodes
     CMD_HEX2DECBIN,
     CMD_BIN2HEXDEC,
     CMD_MEMCPY,
-    CMD_MEMCPR,
+    CMD_PRNDT,
+    CMD_SETDT,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -85,7 +97,7 @@ enum eErrors {
 };
 
 const int ver_major = 1;
-const int ver_minor = 4;
+const int ver_minor = 5;
 const int ver_build = 2;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
@@ -105,29 +117,28 @@ const char *ga_errmsg[11] =
     "Unknown."
 };
 
-const char *helptext[32] =
+const char *helptext[31] =
 {
     "\n\r",
     "   r : read memory contents.\n\r",
-    "       r <hexaddr>[-hexaddr]\n\r",
+    "       r <hexaddr>[-hexaddr] [+]\n\r",
+    "         + - canonical (dump hex + ASCII)\n\r",
     "   w : write data to address.\n\r",
     "       w <hexaddr> <hexdata> [hexdata] ...\n\r",
     "   i : initialize memory with value.\n\r",
-    "       i <hexaddr> <hexaddr> [hexdata]\n\r",
+    "       i <hexaddr>-<hexaddr> hexdata\n\r",
     "   x : execute at address.\n\r",
     "       x <hexaddr>\n\r",
-    "dump : canonical memory dump. (hex,ASCII)\n\r",
-    "       dump <hexaddr>[ hexaddr]\n\r",
-    " mcp : copy memory of specified size.\n\r",
-    "       mcp <hex_src> <hex_dst> <hex_size>\n\r",
-    "mcpr : copy memory range.\n\r",
-    "       mcpr <hex_beg> <hex_end> <hex_dst>\n\r",
+    "   m : copy memory of specified size.\n\r",
+    "       m <hex_dst> <hex_src> <hex_size>\n\r",
+    "   t : print date / time.\n\r",
+    "   s : set date / time.\n\r",
     " wnv : write to non-volatile RTC RAM.\n\r",
     "       wnv <bank#> <hexaddr>\n\r",
     " rnv : dump non-volatile RTC RAM.\n\r",
     "       rnv <bank#> [<hexaddr>]\n\r",
-    "bank : see or select banked RAM bank.\n\r",
-    "       bank [<bank#(0..7)>]\n\r",
+    "   b : see or select BRAM bank#.\n\r",
+    "       b [00..07]\n\r",
     "d2hb : decimal to hex/bin conversion.\n\r",
     "       d2hb <decnum>\n\r",
     "h2db : hexadecimal to dec/bin conversion.\n\r",
@@ -155,16 +166,15 @@ int     hexchar2int(char c);
 int     power(int base, int exp);
 int     hex2int(const char *hexstr);
 void    enhmon_initmem(void);
-void    enhmon_rmemenh(void);
 void    enhmon_mcp(void);
-void    enhmon_mcpr(void);
 void    enhmon_rnv(void);
 void    enhmon_wnv(void);
 int     enhmon_exec(void);
 void    enhmon_shell(void);
 void    enhmon_banner(void);
-void    enhmon_rambanksel(void);
-void    enhmon_getrambank(void);
+//void    enhmon_rambanksel(void);
+//void    enhmon_getrambank(void);
+void    enhmon_bramsel(void);
 void    enhmon_dec2hexbin(void);
 void    enhmon_hex2decbin(void);
 void    enhmon_bin2hexdec(void);
@@ -172,6 +182,8 @@ void    enhmon_prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
 void    prn_decbinhex(char *dec, char *bin, char *hex);
+void    enhmon_prndt(void);
+void    enhmon_setdt(void);
 
 /* print error message */
 void enhmon_prnerror(int errnum)
@@ -204,17 +216,9 @@ void enhmon_parse(void)
     {
         cmd_code = CMD_READMEM;
     }
-    else if (0 == strncmp(prompt_buf,"dump ",5))
-    {
-        cmd_code = CMD_RMEMENH;
-    }
-    else if (0 == strncmp(prompt_buf,"mcp ",4))
+    else if (0 == strncmp(prompt_buf, "m ", 2))
     {
         cmd_code = CMD_MEMCPY;
-    }
-    else if (0 == strncmp(prompt_buf,"mcpr ",5))
-    {
-        cmd_code = CMD_MEMCPR;
     }
     else if (0 == strncmp(prompt_buf,"w ",2))
     {
@@ -240,7 +244,15 @@ void enhmon_parse(void)
     {
         cmd_code = CMD_RNV;
     }
+/*****
     else if (0 == strncmp(prompt_buf,"bank",4))
+    {
+        cmd_code = CMD_RAMBANK;
+    }
+*****/
+    else if (0 == strncmp(prompt_buf,"b ",2)
+             || prompt_buf[0] == 'b'
+            )
     {
         cmd_code = CMD_RAMBANK;
     }
@@ -255,6 +267,14 @@ void enhmon_parse(void)
     else if (0 == strncmp(prompt_buf,"b2hd ",5))
     {
         cmd_code = CMD_BIN2HEXDEC;
+    }
+    else if (prompt_buf[0] == 't')
+    {
+        cmd_code = CMD_PRNDT;
+    }
+    else if (prompt_buf[0] == 's')
+    {
+        cmd_code = CMD_SETDT;
     }
     else
         cmd_code = CMD_UNKNOWN;
@@ -289,6 +309,31 @@ void enhmon_writemem(void)
 void enhmon_execmem(void)
 {
     __asm__("jsr %w", MOS_PROCEXEC);
+}
+
+void enhmon_initmem(void)
+{
+    __asm__("jsr %w", MOS_MEMINIT);
+}
+
+void enhmon_mcp(void)
+{
+    __asm__("jsr %w", MOS_MEMCPY);
+}
+
+void enhmon_bramsel(void)
+{
+    __asm__("jsr %w", MOS_BRAMSEL);
+}
+
+void enhmon_prndt(void)
+{
+    __asm__("jsr %w", MOS_PRNDT);
+}
+
+void enhmon_setdt(void)
+{
+    __asm__("jsr %w", MOS_SETDT);
 }
 
 void enhmon_version(void)
@@ -373,116 +418,6 @@ int hex2int(const char *hexstr)
     return ret;
 }
 
-/*
- *
- * Initialize memory - command handler.
- * i startaddr endaddr val
- * E.g.: i 8000 bfff 01
- *
- */
-void enhmon_initmem(void)
-{
-    int i, tok1, tok2, tok3;
-    uint16_t staddr = 0x0000;
-    uint16_t enaddr = 0x0000;
-    int b = 256;
-    size_t count = 0;
-
-    tok1 = adv2nxttoken(2); // begin of staddr
-    i = adv2nextspc(tok1);
-    tok2 = adv2nxttoken(i); // begin of enaddr
-    i = adv2nextspc(tok2);
-    tok3 = adv2nxttoken(i); // begin of value
-    adv2nextspc(tok3);
-    if (tok2 > tok1) {
-        staddr = hex2int(prompt_buf + tok1);
-        enaddr = hex2int(prompt_buf + tok2);
-    }
-    if (enaddr > staddr && tok3 > tok2 && tok2 > tok1) {
-
-        b = hex2int(prompt_buf + tok3);
-        count = enaddr - staddr;
-        memset((void *)staddr, b, count);
-    } else {
-        enhmon_prnerror(ERROR_CHECKARGS);
-    }
-}
-
-/*
- *
- * Read memory range and output hexadecimal
- * values of memory locations as well as
- * ascii representation if applicable.
- * This function will avoid reading the I/O mapped
- * memory range to avoid undesired side effects from
- * I/O devices or memory banking register (which is
- * also sensitive to reading operations).
- *
- */
-void enhmon_rmemenh(void)
-{
-    int i, tok1, tok2;
-    uint16_t staddr = 0x0000;
-    uint16_t enaddr = 0x0000;
-    uint16_t addr = 0x0000;
-    unsigned char b = 0x00;
-
-    tok1 = adv2nxttoken(5);
-    tok2 = adv2nextspc(tok1);
-    tok2 = adv2nxttoken(tok2);
-    adv2nextspc(tok2);
-    enaddr = hex2int(prompt_buf + tok2);
-    staddr = hex2int(prompt_buf + tok1);
-    if (enaddr == 0x0000) {
-        enaddr = staddr + 0x0100;
-    }
-
-    while (kbhit()) getc(); // flush RX buffer
-    for (addr=staddr; addr<enaddr; addr+=16)
-    {
-        utoa(addr,ibuf1,RADIX_HEX);
-        if (strlen(ibuf1) < 4)
-        {
-            for (i=4-strlen(ibuf1); i>0; i--)
-                putchar('0');
-        }
-        puts(ibuf1);
-        puts(" : ");
-        if (addr >= IO_START && addr <= IO_END) {
-            puts ("dump blocked in I/O mapped range\n\r");
-            continue;
-        }
-        for (i=0; i<16; i++)
-        {
-            b = PEEK(addr+i);
-            if (b < 16) putchar('0');
-            puts(itoa(b,ibuf3,RADIX_HEX));
-            putchar(' ');
-        }
-        puts(" : ");
-        for (i=0; i<16; i++)
-        {
-            b = PEEK(addr+i);
-            if (b > 31 && b < 127)
-                putchar(b);
-            else
-                putchar('?');
-        }
-        puts("\n\r");
-        if (0xffff - enaddr <= 0x0f && addr < staddr)
-            break;
-        // interrupt from keyboard
-        if (kbhit()) {
-            if (32 == getc()) { // if SPACE,
-                while (!kbhit())  /* wait for any keypress to continue */ ;
-                getc();         // consume the key
-            } else {            // if not SPACE, break (exit) the loop
-                break;
-            }
-        }
-    }
-}
-
 // Command parsing helpers.
 /*
  * Advance index to next token.
@@ -514,69 +449,6 @@ int adv2nextspc(int idx)
     }
 
     return idx;
-}
-
-/*
- * Handle command: mcp <hex_src> <hex_dst> <hex_size>
- * Copy provided size in bytes of non-overlapping memory from source
- * to destination.
- */
-void enhmon_mcp(void)
-{
-    int i, tok1, tok2;
-    uint16_t srcaddr = 0x0000;
-    uint16_t dstaddr = 0x0000;
-    uint16_t bytecnt = 0x0000;
-
-    // parse arguments:
-    i = adv2nxttoken(4);
-    tok1 = i;   // remember start index of srcaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    tok2 = i;   // remember start index of dstaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    if (i > tok2 && tok2 > tok1) {
-      srcaddr = hex2int(prompt_buf + tok1);
-      dstaddr = hex2int(prompt_buf + tok2);
-      bytecnt = hex2int(prompt_buf + i);
-    }
-    if (dstaddr != srcaddr && bytecnt > 0) {
-        memmove((void *)dstaddr, (void *)srcaddr, bytecnt);
-    } else {
-        enhmon_prnerror(ERROR_CHECKARGS);
-    }
-}
-
-/*
- * Handle command: mcpr <hex_beg> <hex_end> <hex_dst>
- * Copy non-overlapping memory region to destination.
- */
-void enhmon_mcpr(void)
-{
-    int i, tok1, tok2;
-    uint16_t begaddr = 0x0000;
-    uint16_t endaddr = 0x0000;
-    uint16_t dstaddr = 0x0000;
-    uint16_t bytecnt = 0;
-
-    // parse arguments:
-    i = adv2nxttoken(5);
-    tok1 = i;   // remember start index of begaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    tok2 = i;   // remember start index of endaddr
-    i = adv2nextspc(i);
-    i = adv2nxttoken(i);
-    begaddr = hex2int(prompt_buf + tok1);
-    endaddr = hex2int(prompt_buf + tok2);
-    dstaddr = hex2int(prompt_buf + i);
-    if (endaddr > begaddr && i > tok2 && tok2 > tok1) {
-        bytecnt = endaddr - begaddr;
-        memmove((void *)dstaddr, (void *)begaddr, bytecnt);
-    } else {
-        enhmon_prnerror(ERROR_CHECKARGS);
-    }
 }
 
 /*
@@ -726,14 +598,8 @@ int enhmon_exec(void)
         case CMD_READMEM:
             enhmon_readmem();
             break;
-        case CMD_RMEMENH:
-            enhmon_rmemenh();
-            break;
         case CMD_MEMCPY:
             enhmon_mcp();
-            break;
-        case CMD_MEMCPR:
-            enhmon_mcpr();
             break;
         case CMD_WRITEMEM:
             enhmon_writemem();
@@ -754,7 +620,8 @@ int enhmon_exec(void)
             enhmon_wnv();
             break;
         case CMD_RAMBANK:
-            enhmon_rambanksel();
+            //enhmon_rambanksel();
+            enhmon_bramsel();
             break;
         case CMD_DEC2HEXBIN:
             enhmon_dec2hexbin();
@@ -764,6 +631,12 @@ int enhmon_exec(void)
             break;
         case CMD_BIN2HEXDEC:
             enhmon_bin2hexdec();
+            break;
+        case CMD_PRNDT:
+            enhmon_prndt();
+            break;
+        case CMD_SETDT:
+            enhmon_setdt();
             break;
         default:
             break;
@@ -799,10 +672,11 @@ void enhmon_banner(void)
     puts("Type 'help' for guide.\n\r\n\r");
 }
 
-int g_bnum;
+//int g_bnum;
 /*
  * Select banked RAM bank.
  */
+/********************
 void enhmon_rambanksel(void)
 {
     g_bnum = -1;
@@ -826,10 +700,12 @@ void enhmon_rambanksel(void)
 
     enhmon_getrambank();
 }
+****************/
 
 /*
  * Get current banked RAM bank #.
  */
+/************************
 void enhmon_getrambank(void)
 {
     unsigned char rambank = 0;
@@ -845,6 +721,7 @@ void enhmon_getrambank(void)
     puts(utoa((unsigned int)rambank, ibuf3, RADIX_DEC));
     puts("\n\r");
 }
+****************/
 
 /*
  * Print 3 strings to output in separate lines with labels

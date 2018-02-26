@@ -9,6 +9,9 @@
  * 2/20/2018
  * 	Initial revision.
  *
+ * 2/25/2018
+ *  Refactoring due to ROM library introduction.
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -19,10 +22,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <peekpoke.h>
 #include "mkhbcos_serialio.h"
 #include "mkhbcos_ansi.h"
 #include "mkhbcos_ml.h"
-#include "mkhbcos_ds1685.h"
+#include "romlib.h"
 
 #define IBUF1_SIZE      30
 #define IBUF2_SIZE      30
@@ -32,25 +36,10 @@
 #define RADIX_BIN       2
 
 const int ver_major = 1;
-const int ver_minor = 0;
-const int ver_build = 2;
+const int ver_minor = 1;
+const int ver_build = 1;
 
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
-
-const char daysofweek[8][4] =
-{
-    "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
-};
-
-const char monthnames[13][4] =
-{
-    "Jan", "Feb", "Mar",
-    "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep",
-    "Oct", "Nov", "Dec"
-};
-
-struct ds1685_clkdata	clkdata;
 
 void clock_version(void);
 void clock_show(void);
@@ -73,65 +62,8 @@ void clock_version(void)
  */
 void clock_show(void)
 {
-    if (!RTCDETECTED) {
-        puts("ERROR: RTC not detected.\n\r");
-        return;
-    }
-
-    ds1685_rdclock (&clkdata);
-
-    memset(ibuf1, 0, IBUF1_SIZE);
-    memset(ibuf2, 0, IBUF2_SIZE);
-    memset(ibuf3, 0, IBUF3_SIZE);
-    strcpy(ibuf1, "Date: ");
-
-    if (clkdata.dayofweek > 0 && clkdata.dayofweek < 8)	{
-
-        strcat(ibuf1, daysofweek[clkdata.dayofweek-1]);
-
-    } else {
-
-        strcat(ibuf1, "???");
-    }
-    strcat(ibuf1, ", ");
-    strcat(ibuf1, itoa(clkdata.date, ibuf3, RADIX_DEC));
-    strcat(ibuf1, " ");
-    if (clkdata.month > 0 && clkdata.month < 13)
-        strcat(ibuf1, monthnames[clkdata.month-1]);
-    else
-        strcat(ibuf1, "???");
-    strcat(ibuf1, " ");
-    if (clkdata.century < 100)
-        strcat(ibuf1, itoa(clkdata.century, ibuf3, RADIX_DEC));
-    else
-        strcat(ibuf1, "??");
-    if(clkdata.year < 100)
-    {
-        if (clkdata.year < 10)
-            strcat(ibuf1, "0");
-        strcat(ibuf1, itoa(clkdata.year, ibuf3, RADIX_DEC));
-    }
-    else
-        strcat(ibuf1, "??");
-
-    strcat(ibuf1, "\r\n");
-    puts(ibuf1);
-
-    strcpy(ibuf2, "Time: ");
-    if (clkdata.hours < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.hours, ibuf3, RADIX_DEC));
-    strcat(ibuf2, " : ");
-    if (clkdata.minutes < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.minutes, ibuf3, RADIX_DEC));
-    strcat(ibuf2, " : ");
-    if (clkdata.seconds < 10)
-        strcat(ibuf2, "0");
-    strcat(ibuf2, itoa(clkdata.seconds, ibuf3, RADIX_DEC));
-
-    strcat(ibuf2, "\r\n");
-    puts(ibuf2);
+    EXCHRAM[0] = ROMLIBFUNC_SHOWDT;
+    (*romlibfunc)();
 }
 
 void clock_banner(void)
@@ -173,7 +105,7 @@ int main(void)
         clock_show();
         ansi_set_cursor(1,1);
         if(kbhit()) break;
-        pause_sec64(50);
+        pause_sec64(61);
     }
     ansi_set_cursor(1,3);
     puts("\n\rBye!\n\r");

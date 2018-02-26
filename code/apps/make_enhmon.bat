@@ -19,7 +19,7 @@ echo Building application "enhmon" ...
 rem
 rem build enhmon app.
 rem
-cl65 -t none --cpu 6502 --config mkhbcoslib.cfg -l -m enhmon.map enhmon.c mkhbcos.lib
+cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -m enhmon.map enhmon.c mkhbcos.lib
 rem
 
 echo Generating terminal program loading script "enhmon_prg.txt" ...
@@ -51,14 +51,14 @@ rem       use -z flag. It is safer in general not to use
 rem       it, even though the program load time is much
 rem       longer with all unnecessary null bytes.
 rem
-..\bin2hex -f enhmon -o enhmon_prg.txt -w 1024 -x 1024 -z
+..\bin2hex -f enhmon -o enhmon_prg.txt -w 2816 -x 2816 -z
 
 rem
 rem command below will build hex load file with
 rem all load statements (including lines with all zeroes)
 rem and will suppress the execute statement.
 rem
-rem bin2hex -f enhmon -o enhmon_prg.txt -w 1024 -x 1024 -s
+rem bin2hex -f enhmon -o enhmon_prg.txt -w 2816 -x 2816 -s
 
 echo Done.
 
