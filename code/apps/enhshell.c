@@ -126,6 +126,10 @@
  * 2/25/2018
  *  Refactoring related to ROM library introduction.
  *
+ * 2/26/2018
+ *  Program marked obsolete, destined for removal.
+ *  Program enhmon replaces it.
+ *
  *  ..........................................................................
  *
  *  BUGS:
@@ -135,6 +139,10 @@
  *     program doesn't return, it goes to firmware monitor. This is similar to
  *     the problem in enhmon.c program. I wonder if this is problem of big
  *     programs? This does not happen for all ROM library functions.
+ *     NOTE: Fixed by moving ZP start address in mkhbcoslib.cfg to $46 and
+ *           shortening its size to $34. Looks like there was a conflict with
+ *           the same area of ZP used by mkhbcos library, mkhbcrom library and
+ *           perhaps MKHBC OS.
  *
  *  ..........................................................................
  */
