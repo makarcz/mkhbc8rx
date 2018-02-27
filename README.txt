@@ -47,14 +47,14 @@ binary code.
 The new entries can be added to the Kernel Jump Table though, so it is
 guaranteed to be backwards compatible.
 Firmware code is integrated into the CC65 startup routine and together with the
-entry point program, CC65 library and platform specific library code is put in
-the library archive 'mkhbcrom.lib'. All this code compiles / links into 8 kB
-image 'romlib' which is then burned into EPROM chip.
+entry program romlib.c, CC65 library and platform specific library code is put
+in the library archive 'mkhbcrom.lib'. All this code compiles / links into 8 kB
+image 'romlib.BIN' which is then burned into EPROM chip.
 
 Theory of operation:
 
-When computer is started, the reset circuit holds the reset line low long
-enough for CPU to initialize, then the CPU performs startup routine which
+When computer is started, the reset circuit holds the reset line low for long
+enough time for CPU to initialize. Next the CPU performs startup routine which
 consists of reading the Reset vector from the EPROM memory (which must be at
 fixed address) and executes the routine pointed by that vector.
 The routine contains initialization code for OS and then goes into the eternal
@@ -72,45 +72,53 @@ setup date / time if computer is equipped with RTC DS1685 chip.
 This UI is rudimentary but sufficient for entering code into computer's RAM
 and executing it. As mentioned - additional system library is integrated into
 EPROM image. The startup code resides at address $E000.
-Library uses $0400 of RAM at $0400 and $0200 of stack at the end of RAM.
-Access to library functions is provided by a single entry point function at
+Library uses $0400 bytes of RAM at address $0400 and $0200 of stack at the end
+of RAM. Access to library functions is provided by entry point function at
 address $E000.
 Before calling / executing that function, function number (function code) must
-be put in function code register at address $0A00, pointer to the arguments of
-the function (if any) goes in memory locations offset from function code
-register by $01 and $02 and the pointer to the return values (if any) is set
-by the function upon return at offset memory locations $03 and $04.
+be put in function code register at address $0A00, pointer (address) to the
+arguments of the function (if any) goes in memory locations offset from
+function code register by $01 (lo) and $02 (hi) and the pointer (address) to
+the return values (if any) is set by the function upon return at offset memory
+locations $03 (lo) and $04 (hi). The actual arguments and return values must
+be present at these addresses.
 
 This is new code at very early stage of development, so this information is
 subject to change in the near future.
 
 The system library function codes, arguments and return values are:
 
-0   Print version and copyright information about library.
-    Takes no arguments. Returns no values.
-1   Print date and time.
-   	Takes no arguments.
-    Returns pointer to clock data structure ds1685_clkdata
-    (see mkhbcos_ds1685.h).
-2   Print a string.
-    Takes address of the text buffer as argument.
-    Returns no values.
-3   Gets a string from input (keyboard / UART).
-    Takes address of the text buffer as argument.
-    Returns address of the text buffer (duplicated).
-4   Interactive function to set date / time.
-    Takes no arguments.
-    Returns pointer to clock data structure ds1685_clkdata
-    (see mkhbcos_ds1685.h).
-5   Copy memory.
-    Arguments: DestAddr, SrcAddr.
-    No return values.
-6   Canonical memory dump.
-    Arguments: StartAddr, EndAddr.
-    No return values.
-7   Memory initialization.
-    Arguments: StartAddr, EndAddr, Value.
-    No return values.
+------------------------------------------------------------------------------
+Code  Description                     Arguments       Return values
+------------------------------------------------------------------------------
+0     Print version and copyright
+      information about library.      n/a             n/a
+------------------------------------------------------------------------------
+1     Print date and time.            n/a             Pointer to clock data
+                                                      structure ds1685_clkdata
+                                                      (see mkhbcos_ds1685.h).
+------------------------------------------------------------------------------
+2     Print a string.                 Address of the
+                                      text.           n/a
+------------------------------------------------------------------------------
+3     Get a string from input         Address of the  Address of the text
+      (keyboard / UART).              text buffer.    buffer (duplicated).
+------------------------------------------------------------------------------
+4     Interactive function to set                     Pointer to clock data
+      date / time.                    n/a             structure ds1685_clkdata
+                                                      (see mkhbcos_ds1685.h).
+------------------------------------------------------------------------------
+5     Copy memory.                    DestAddr,       n/a
+                                      SrcAddr,
+                                      Size
+------------------------------------------------------------------------------
+6     Canonical memory dump.          StartAddr,      n/a
+      (hex + ASCII)                   EndAddr
+------------------------------------------------------------------------------
+7     Initialize memory.              StartAddr,      n/a
+                                      EndAddr,
+                                      Value
+------------------------------------------------------------------------------
 
 Setting up all necessary registers before calling ROM library function is
 a bit peculiar, but pretty automatic once you learn it.
@@ -423,3 +431,6 @@ System programs:
      mkhbcos_ml.inc - assembly header with definitions for MKHBCOS API and
                       internals
      mkhbcos_serialio.h - serial I/O API
+     romlib.h - definitions for ROM library, system functions that can be
+                accessed by setting up necessary registers and calling code at
+                a single entry point address

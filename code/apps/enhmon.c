@@ -40,6 +40,10 @@
  *     calling different functions between subsequent code changes and builds.
  *     E.g.: at 1-st it used to be after canonical memory dump. Now the dump
  *     doesn't kick back to mos> prompt, but show date / time does.
+ *     NOTE: Fixed by moving ZP start address in mkhbcoslib.cfg to $46 and
+ *           shortening its size to $34. Looks like there was a conflict with
+ *           the same area of ZP used by mkhbcos library, mkhbcrom library and
+ *           perhaps MKHBC OS.
  *
  *  ..........................................................................
  */
@@ -55,7 +59,7 @@
 
 #define IBUF1_SIZE      80
 #define IBUF2_SIZE      80
-#define IBUF3_SIZE      32
+#define IBUF3_SIZE      34
 #define PROMPTBUF_SIZE  80
 #define RADIX_DEC       10
 #define RADIX_HEX       16
@@ -73,12 +77,11 @@ enum cmdcodes
     CMD_RNV,
     CMD_EXECUTE,
     CMD_RAMBANK,
-    CMD_DEC2HEXBIN,
-    CMD_HEX2DECBIN,
-    CMD_BIN2HEXDEC,
+    CMD_CONV,
     CMD_MEMCPY,
     CMD_PRNDT,
     CMD_SETDT,
+    CMD_CTR,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -93,17 +96,18 @@ enum eErrors {
     ERROR_BADCMD,
     ERROR_HEXVALEXP,
     ERROR_BINVALEXP,
+    ERROR_CONVTYPE,
     ERROR_UNKNOWN
 };
 
 const int ver_major = 1;
-const int ver_minor = 5;
-const int ver_build = 2;
+const int ver_minor = 6;
+const int ver_build = 1;
 
 const char hexcodes[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                          'a', 'b', 'c', 'd', 'e', 'f', 0};
 
-const char *ga_errmsg[11] =
+const char *ga_errmsg[12] =
 {
     "OK.",
     "No RTC chip detected.",
@@ -111,15 +115,18 @@ const char *ga_errmsg[11] =
     "Bank# expected value: 0..7.",
     "Expected decimal argument.",
     "Check command arguments.",
-    "Invalid command.",
+    "Invalid command. Type 'h' for guide.",
     "Expected hexadecimal argument.",
     "Expected binary argument.",
+    "Invalid conversion type. Use: d2hb | h2db | b2hd .",
     "Unknown."
 };
 
-const char *helptext[31] =
+const char *helptext[33] =
 {
     "\n\r",
+    "   b : see or select BRAM bank#.\n\r",
+    "       b [00..07]\n\r",
     "   r : read memory contents.\n\r",
     "       r <hexaddr>[-hexaddr] [+]\n\r",
     "         + - canonical (dump hex + ASCII)\n\r",
@@ -136,22 +143,22 @@ const char *helptext[31] =
     " wnv : write to non-volatile RTC RAM.\n\r",
     "       wnv <bank#> <hexaddr>\n\r",
     " rnv : dump non-volatile RTC RAM.\n\r",
-    "       rnv <bank#> [<hexaddr>]\n\r",
-    "   b : see or select BRAM bank#.\n\r",
-    "       b [00..07]\n\r",
-    "d2hb : decimal to hex/bin conversion.\n\r",
-    "       d2hb <decnum>\n\r",
-    "h2db : hexadecimal to dec/bin conversion.\n\r",
-    "       h2db <hexval>\n\r",
-    "b2hd : binary to hex/dec conversion.\n\r",
-    "       b2hd <binval>\n\r",
+    "       rnv <bank#> [hexaddr]\n\r",
+    " ctr : show 64 Hz counter value.\n\r",
+    "conv : dec/hex/bin conversion.\n\r",
+    "       conv <type> <arg>\n\r",
+    "       type: d2hb | h2db | b2hd\n\r",
     "exit : exit enhanced shell.\n\r",
-    "help : print this message.\n\r",
+    "NOTE:\n\r",
+    "   hexaddr, hex_dst, hex_src, hex_size - 4-digit hexadecimal\n\r",
+    "   hexdata - 2-digit hexadecimal\n\r",
+    "   bank# - RTC NV bank : 0 or 1\n\r",
+    "   Arguments are <mandatory> OR [optional].\n\r",
     "\n\r",
     "@EOH"
 };
 
-int cmd_code = CMD_NULL;
+int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 
@@ -175,15 +182,46 @@ void    enhmon_banner(void);
 //void    enhmon_rambanksel(void);
 //void    enhmon_getrambank(void);
 void    enhmon_bramsel(void);
-void    enhmon_dec2hexbin(void);
-void    enhmon_hex2decbin(void);
-void    enhmon_bin2hexdec(void);
+void    enhmon_conv(void);
 void    enhmon_prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
-void    prn_decbinhex(char *dec, char *bin, char *hex);
 void    enhmon_prndt(void);
 void    enhmon_setdt(void);
+void    enhmon_ctr(void);
+
+// Command parsing helpers.
+/*
+ * Advance index to next token.
+ */
+int adv2nxttoken(int idx)
+{
+    while (prompt_buf[idx] == 32) {
+        idx++;
+    }
+
+    return idx;
+}
+
+/*
+ * Advance index to next space.
+ */
+int adv2nextspc(int idx)
+{
+    while (prompt_buf[idx] != 0) {
+
+        if (prompt_buf[idx] == 32
+            || prompt_buf[idx] == '-') {
+
+            prompt_buf[idx] = 0;
+            idx++;
+            break;
+        }
+        idx++;
+    }
+
+    return idx;
+}
 
 /* print error message */
 void enhmon_prnerror(int errnum)
@@ -208,11 +246,11 @@ void enhmon_parse(void)
     {
         cmd_code = CMD_NULL;
     }
-    else if (0 == strncmp(prompt_buf,"exit",4))
+    else if (0 == strncmp(prompt_buf, "exit", 4))
     {
         cmd_code = CMD_EXIT;
     }
-    else if (0 == strncmp(prompt_buf,"r ",2))
+    else if (0 == strncmp(prompt_buf, "r ", 2))
     {
         cmd_code = CMD_READMEM;
     }
@@ -220,27 +258,27 @@ void enhmon_parse(void)
     {
         cmd_code = CMD_MEMCPY;
     }
-    else if (0 == strncmp(prompt_buf,"w ",2))
+    else if (0 == strncmp(prompt_buf, "w ", 2))
     {
         cmd_code = CMD_WRITEMEM;
     }
-    else if (0 == strncmp(prompt_buf,"i ",2))
+    else if (0 == strncmp(prompt_buf, "i ", 2))
     {
         cmd_code = CMD_INITMEM;
     }
-    else if (0 == strncmp(prompt_buf,"x ",2))
+    else if (0 == strncmp(prompt_buf, "x ", 2))
     {
         cmd_code = CMD_EXECUTE;
     }
-    else if (0 == strncmp(prompt_buf,"help",4))
+    else if (prompt_buf[0] == 'h')
     {
         cmd_code = CMD_HELP;
     }
-    else if (0 == strncmp(prompt_buf,"wnv ",4))
+    else if (0 == strncmp(prompt_buf, "wnv ", 4))
     {
         cmd_code = CMD_WNV;
     }
-    else if (0 == strncmp(prompt_buf,"rnv ",4))
+    else if (0 == strncmp(prompt_buf, "rnv ", 4))
     {
         cmd_code = CMD_RNV;
     }
@@ -250,23 +288,9 @@ void enhmon_parse(void)
         cmd_code = CMD_RAMBANK;
     }
 *****/
-    else if (0 == strncmp(prompt_buf,"b ",2)
-             || prompt_buf[0] == 'b'
-            )
+    else if (prompt_buf[0] == 'b')
     {
         cmd_code = CMD_RAMBANK;
-    }
-    else if (0 == strncmp(prompt_buf,"d2hb ",5))
-    {
-        cmd_code = CMD_DEC2HEXBIN;
-    }
-    else if (0 == strncmp(prompt_buf,"h2db ",5))
-    {
-        cmd_code = CMD_HEX2DECBIN;
-    }
-    else if (0 == strncmp(prompt_buf,"b2hd ",5))
-    {
-        cmd_code = CMD_BIN2HEXDEC;
     }
     else if (prompt_buf[0] == 't')
     {
@@ -275,6 +299,14 @@ void enhmon_parse(void)
     else if (prompt_buf[0] == 's')
     {
         cmd_code = CMD_SETDT;
+    }
+    else if (0 == strncmp(prompt_buf, "conv ", 5))
+    {
+        cmd_code = CMD_CONV;
+    }
+    else if (0 == strncmp(prompt_buf, "ctr", 3))
+    {
+        cmd_code = CMD_CTR;
     }
     else
         cmd_code = CMD_UNKNOWN;
@@ -383,7 +415,7 @@ int power(int base, int exp)
     	ret = base;
     else
     {
-        for (i=1; i<exp; i++)
+        for (i = 1; i < exp; i++)
         {
             ret = ret * base;
         }
@@ -408,47 +440,14 @@ int hex2int(const char *hexstr)
 
     l = strlen(hexstr);
 
-    for (i=l-1; i>=0; i--)
+    for (i = l - 1; i >= 0; i--)
     {
         c = hexstr[i];
         n = hexchar2int(c);
-        ret = ret + n*power(16,l-i-1);
+        ret = ret + n*power(16, l - i - 1);
     }
 
     return ret;
-}
-
-// Command parsing helpers.
-/*
- * Advance index to next token.
- */
-int adv2nxttoken(int idx)
-{
-    while (prompt_buf[idx] == 32) {
-        idx++;
-    }
-
-    return idx;
-}
-
-/*
- * Advance index to next space.
- */
-int adv2nextspc(int idx)
-{
-    while (prompt_buf[idx] != 0) {
-
-        if (prompt_buf[idx] == 32
-            || prompt_buf[idx] == '-') {
-
-            prompt_buf[idx] = 0;
-            idx++;
-            break;
-        }
-        idx++;
-    }
-
-    return idx;
 }
 
 /*
@@ -623,20 +622,17 @@ int enhmon_exec(void)
             //enhmon_rambanksel();
             enhmon_bramsel();
             break;
-        case CMD_DEC2HEXBIN:
-            enhmon_dec2hexbin();
-            break;
-        case CMD_HEX2DECBIN:
-            enhmon_hex2decbin();
-            break;
-        case CMD_BIN2HEXDEC:
-            enhmon_bin2hexdec();
+        case CMD_CONV:
+            enhmon_conv();
             break;
         case CMD_PRNDT:
             enhmon_prndt();
             break;
         case CMD_SETDT:
             enhmon_setdt();
+            break;
+        case CMD_CTR:
+            enhmon_ctr();
             break;
         default:
             break;
@@ -669,7 +665,7 @@ void enhmon_banner(void)
     puts("Welcome to Enhanced Monitor ");
     enhmon_version();
     puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
-    puts("Type 'help' for guide.\n\r\n\r");
+    puts("Type 'h' for guide.\n\r\n\r");
 }
 
 //int g_bnum;
@@ -724,120 +720,109 @@ void enhmon_getrambank(void)
 ****************/
 
 /*
- * Print 3 strings to output in separate lines with labels
- * Dec:, Hex: and Bin:.
+ * Dec/hex/bin conversion.
  */
-void prn_decbinhex(char *dec, char *bin, char *hex)
+void enhmon_conv()
 {
-    puts("Dec: ");
-    puts(dec);
-    puts("\n\r");
-    puts("Hex: ");
-    puts(hex);
-    puts("\n\r");
-    puts("Bin: ");
-    puts(bin);
-    puts("\n\r");
-}
-
-/*
- * Decimal to hex/bin conversion.
- */
-void enhmon_dec2hexbin()
-{
-    int i, j;
+    int tok1, tok2, j, k, pos;
+    int dv = 0;
     char *hexval = ibuf1;
     char *binval = ibuf2;
+    char *decval = ibuf3;
 
     if (strlen(prompt_buf) > 5) {
-        i = adv2nxttoken(5);
-        adv2nextspc(i);
-        j = i;
-        // validate if proper decimal value
-        while (prompt_buf[j] != 0) {
-            if (prompt_buf[j] < 48 || prompt_buf[j] > 57) {
-                enhmon_prnerror(ERROR_DECVALEXP);
-                return;
+
+        tok1 = adv2nxttoken(5);     // conversion type
+        tok2 = adv2nextspc(tok1);
+        tok2 = adv2nxttoken(tok2);  // argument
+        adv2nextspc(tok2);
+        if (0 == strncmp(prompt_buf + tok1, "d2hb", 4)) {
+            // validate if proper decimal value
+            j = tok2;
+            while (*(prompt_buf + j) != 0) {
+                if (*(prompt_buf + j) < 48 || *(prompt_buf + j) > 57) {
+                    enhmon_prnerror(ERROR_DECVALEXP);
+                    return;
+                }
+                j++;
             }
-            j++;
+            ultoa((unsigned long)atol(prompt_buf + tok2), hexval, RADIX_HEX);
+            ultoa((unsigned long)atol(prompt_buf + tok2), binval, RADIX_BIN);
+            strcpy(decval, prompt_buf + tok2);
+
+        } else if (0 == strncmp(prompt_buf + tok1, "h2db", 4)) {
+            // validate if proper hexadecimal value
+            j = tok2;
+            while (*(prompt_buf + j) != 0) {
+                if (*(prompt_buf + j) < 48
+                    || (*(prompt_buf + j) > 57 && *(prompt_buf + j) < 65)
+                    || (*(prompt_buf + j) > 70 && *(prompt_buf + j) < 97)
+                    || *(prompt_buf + j) > 102
+                  ) {
+                    enhmon_prnerror(ERROR_HEXVALEXP);
+                    return;
+                }
+                j++;
+            }
+            dv = hex2int(prompt_buf + tok2);
+            utoa((unsigned int)dv, decval, RADIX_DEC);
+            utoa((unsigned int)dv, binval, RADIX_BIN);
+            strcpy(hexval, prompt_buf + tok2);
+
+        } else if (0 == strncmp(prompt_buf + tok1, "b2hd", 4)) {
+
+            j = tok2;
+            pos = strlen(prompt_buf + tok2) - 1;
+            // convert binary to decimal
+            while (*(prompt_buf + j) != 0) {
+                // validate if proper binary digit
+                if (*(prompt_buf + j) != '1'  && *(prompt_buf + j) != '0') {
+                    enhmon_prnerror(ERROR_BINVALEXP);
+                    return;
+                }
+                k = ((*(prompt_buf + j) == '1') ? 1 : 0);
+                dv += k * power(2, pos);
+                pos--;
+                j++;
+            }
+            utoa((unsigned int)dv, hexval, RADIX_HEX);
+            utoa((unsigned int)dv, decval, RADIX_DEC);
+            strcpy(binval, prompt_buf + tok2);
         }
-        ultoa((unsigned long)atol(prompt_buf + i), hexval, RADIX_HEX);
-        ultoa((unsigned long)atol(prompt_buf + i), binval, RADIX_BIN);
-        prn_decbinhex(prompt_buf + i, binval, hexval);
+        else {
+          enhmon_prnerror(ERROR_CONVTYPE);
+          return;
+        }
+        puts("Dec: ");
+        puts(decval);
+        puts("\n\r");
+        puts("Hex: ");
+        puts(hexval);
+        puts("\n\r");
+        puts("Bin: ");
+        puts(binval);
+        puts("\n\r");
     } else {
-        enhmon_prnerror(ERROR_DECVALEXP);
+        enhmon_prnerror(ERROR_CHECKARGS);
     }
 }
 
 /*
- * Hexadecimal to decimal and binary conversion.
+ * Show the value of counter updated in interrupt 64 times / sec.
+ * Display in decimal, hexadecimal and binary formats.
  */
-void enhmon_hex2decbin(void)
+void enhmon_ctr(void)
 {
-      int i, j;
-      char *decval = ibuf1;
-      char *binval = ibuf2;
-      int dv = 0;
+    unsigned long tmr64 = *TIMER64HZ;
 
-      if (strlen(prompt_buf) > 5) {
-          i = adv2nxttoken(5);
-          adv2nextspc(i);
-          j = i;
-          // validate if proper hexadecimal value
-          while (prompt_buf[j] != 0) {
-              if (prompt_buf[j] < 48
-                  || (prompt_buf[j] > 57 && prompt_buf[j] < 65)
-                  || (prompt_buf[j] > 70 && prompt_buf[j] < 97)
-                  || prompt_buf[j] > 102
-                 ) {
-                  enhmon_prnerror(ERROR_HEXVALEXP);
-                  return;
-              }
-              j++;
-          }
-          dv = hex2int(prompt_buf + i);
-          utoa((unsigned int)dv, decval, RADIX_DEC);
-          utoa((unsigned int)dv, binval, RADIX_BIN);
-          prn_decbinhex(decval, binval, prompt_buf + i);
-      } else {
-          enhmon_prnerror(ERROR_HEXVALEXP);
-      }
-}
-
-/*
- * Binary to hexadecimal and decimal conversion.
- */
-void enhmon_bin2hexdec(void)
-{
-    int i, j, k;
-    char *hexval = ibuf1;
-    char *decval = ibuf2;
-    int pos = 0;
-    int dv = 0;
-
-    if (strlen(prompt_buf) > 5) {
-        i = adv2nxttoken(5);
-        adv2nextspc(i);
-        pos = strlen(prompt_buf + i) - 1;
-        j = i;
-        // convert binary to decimal
-        while (prompt_buf[j] != 0) {
-            // validate if proper binary digit
-            if (prompt_buf[j] != '1'  && prompt_buf[j] != '0') {
-                enhmon_prnerror(ERROR_BINVALEXP);
-                return;
-            }
-            k = ((prompt_buf[j] == '1') ? 1 : 0);
-            dv += k * power(2, pos);
-            pos--;
-            j++;
-        }
-        utoa((unsigned int)dv, hexval, RADIX_HEX);
-        utoa((unsigned int)dv, decval, RADIX_DEC);
-        prn_decbinhex(decval, prompt_buf + i, hexval);
-    } else {
-        enhmon_prnerror(ERROR_BINVALEXP);
-    }
+    //tmr64 = *TIMER64HZ;
+    strcpy(ibuf1, ultoa(tmr64, ibuf3, RADIX_DEC));
+    strcat(ibuf1, " $");
+    strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_HEX));
+    strcat(ibuf1, " %");
+    strcat(ibuf1, ultoa(tmr64, ibuf3, RADIX_BIN));
+    strcat(ibuf1, "\n\r");
+    puts(ibuf1);
 }
 
 int main(void)
