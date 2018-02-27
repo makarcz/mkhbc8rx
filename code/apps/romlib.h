@@ -24,7 +24,9 @@ extern uint16_t _LIBARG_START__; //, __LIBARG_SIZE__;
 extern uint16_t _IO0_START__;
 extern uint16_t _IO7_START__, _IO7_SIZE__;
 extern uint16_t _ROMLIB_START__;
+extern uint16_t _BRAM_START__;
 
+#define BRAM            ((unsigned char *)&_BRAM_START__)
 #define EXCHRAM         ((unsigned char *)&_LIBARG_START__)
 #define ARGPTR          (EXCHRAM+1)
 #define RETPTR          (EXCHRAM+3)

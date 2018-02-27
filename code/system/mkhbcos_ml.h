@@ -78,10 +78,13 @@
 #define MOS_PROCWMEM	  0xFFE7
 #define MOS_PROCEXEC	  0xFFEA
 
-// These addresses need to be moved to Kernel Jump Table.
-// Before they are, they need to be changed each time firmware is rebuilt.
-// NOTE: These are monitor commands, they require properly formed command
-//       in the PromptLine entered by user at address $80.
+/*
+ * The addresses below need to be moved to Kernel Jump Table.
+ * Before they are, they need to be changed each time firmware code in
+ * system/mkhbcos_fmware.s is altered in such a way that relocates the code.
+ * NOTE: These are monitor commands, they require properly formed command
+ *       in the PromptLine entered by user at address $80.
+ */
 
 #define MOS_MEMINIT       0xE937
 #define MOS_MEMCPY        0xE8B5

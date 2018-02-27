@@ -31,9 +31,11 @@ rem
 rem 2/24/2018
 rem    Deleted romlib image from delete list.
 rem
+rem 2/27/2018
+rem    Deleted obsolete programs from the list.
+rem
 del *.o
 del *.lst
 del *.map
 del *_prg.txt
-del enhshell hello microchess test1 testansi tinybasic tinybas022 d2hb date
-del setdt enhmon clock
+del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock

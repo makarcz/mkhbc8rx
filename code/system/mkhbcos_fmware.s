@@ -30,21 +30,24 @@
 ;   Bug fixes, adjustments of welcome and help messages.
 ;   Refactoring.
 ;
+; 2/27/2018
+;   Minor code formatting.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
 .import   _main
 
 .export   __STARTUP__ : absolute = 1        ; Mark as startup
-.import   __RAM_START__, __RAM_SIZE__       ; Linker generated
-.import   __IO0_START__, __IO0_SIZE__
-.import   __IO1_START__, __IO1_SIZE__
-.import   __IO2_START__, __IO2_SIZE__
-.import   __IO3_START__, __IO3_SIZE__
-.import   __IO4_START__, __IO4_SIZE__
-.import   __IO5_START__, __IO5_SIZE__
-.import   __IO6_START__, __IO6_SIZE__
-.import   __IO7_START__, __IO7_SIZE__
+.import   __RAM_START__,    __RAM_SIZE__    ; Linker generated
+.import   __IO0_START__,    __IO0_SIZE__
+.import   __IO1_START__,    __IO1_SIZE__
+.import   __IO2_START__,    __IO2_SIZE__
+.import   __IO3_START__,    __IO3_SIZE__
+.import   __IO4_START__,    __IO4_SIZE__
+.import   __IO5_START__,    __IO5_SIZE__
+.import   __IO6_START__,    __IO6_SIZE__
+.import   __IO7_START__,    __IO7_SIZE__
 .import   __LIBARG_START__, __LIBARG_SIZE__
 
 .import    copydata, zerobss, initlib, donelib
@@ -89,7 +92,6 @@ _init:
 ; Back from main (this is also the _exit entry):  force a software break
 
 _exit:    JSR     donelib              ; Run destructors
-          ;BRK
           rts
 
 ; Here starts the firmware source code.
