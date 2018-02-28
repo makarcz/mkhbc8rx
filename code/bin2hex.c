@@ -81,6 +81,8 @@ int main(int argc, char *argv[])
 {
    ScanArgs(argc, argv);
    ConvertFile();
+   
+   return 0;
 }
 
 

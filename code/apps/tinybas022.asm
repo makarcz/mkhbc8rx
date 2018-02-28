@@ -138,7 +138,7 @@
 ;
 .segment "BASIC"
 
-.org     $4400             ; Start of Basic.
+;.org     $4400             ; Start of Basic.
 
 
 CV:       JMP      COLD_S            ; Cold start vector
@@ -229,7 +229,7 @@ ERRSTR:  .byte $20,$41,$54,$20       ; " AT " string used in error reporting.
 
 LBL002:  .word ILTBL                 ; Address of IL program table
 
-BasicPrgStart = $6000
+BasicPrgStart = $2700
 ;
 ; Begin Cold Start
 ;
@@ -1310,7 +1310,7 @@ ILTBL:
 
 .segment "MAIN"
 
-.org $4CF0    ; Address of main program
+;.org $4CF0    ; Address of main program
 
 main:
          jsr CLRSC                  ; Go clear the screen
@@ -1371,7 +1371,7 @@ PRMPT:   ldx #$2F                   ; Offset of prompt
 
 .segment "MESG"
 
-.org $4E00    ; Address of message area
+;.org $4E00    ; Address of message area
 MBLK:
 ;
 ; The message block begins at $4E00 and is at most 256 bytes long.
@@ -1379,19 +1379,19 @@ MBLK:
 ;
 .byte "TINY BASIC FOR MKHBC-8-R2 6502"
 .byte  $0D, $0A ;, $0A
-.byte "Version: 1.1.1, 2/14/2018"
+.byte "Version: 1.2.0, 2/28/2018"
 .byte  $0D, $0A ;, $0A
 .byte  "(NOTE: USE UPPER CASE)"
 .byte  $0D, $0A ;, $0A
-.byte "TB resides at: $4400 - $4F67 ( 2 kB)",$0d,$0a
-.byte "ML code space: $5000 - $5FFF ( 4 kB)",$0d,$0a
-.byte "Basic program: $6000 - $BFFF (23 kB)",$0d,$0a
+.byte "TB resides at: $0B00 - $1700 ( 2 kB)",$0d,$0a
+.byte "ML code space: $1700 - $26FF ( 4 kB)",$0d,$0a
+.byte "Basic program: $2700 - $BFFF (38 kB)",$0d,$0a
 .byte "Boot ([C]old/[W]arm)? "
 .byte  $07, $FF
 
 .segment "SUBR"
 
-.org $4F00    ;address of subroutine area
+;.org $4F00    ;address of subroutine area
 
 SBLK:
 ;
