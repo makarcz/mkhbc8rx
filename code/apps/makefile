@@ -19,7 +19,7 @@ clean:
 	del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock
 
 lib: mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
-	echo      Update library ...
+	@echo      Update library ...
 	ar65 a mkhbcos.lib mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
 
 mkhbcos_lcd1602.o: ..\system\mkhbcos_lcd1602.c ..\system\mkhbcos_ml.h romlib.h
@@ -64,5 +64,9 @@ conv: d2hexbin.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
 tinybas022: tinybas022.asm tinybasic.cfg
 	cl65 --verbose --cpu 6502 --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybas022.map --listing tinybas022.asm
 	..\bin2hex -f tinybas022 -o tinybas022_prg.txt -w 2816 -x 5104 -z
+
+tinybasic: tinybasic.asm tinybasic.cfg
+	cl65 --verbose --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybasic.map --listing tinybasic.asm
+	..\bin2hex -f tinybasic -o tinybasic_prg.txt -w 17408 -x 19696 -z
 
 all: clean lib hello enhmon clock conv

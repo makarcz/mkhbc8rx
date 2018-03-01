@@ -95,6 +95,13 @@
 ; 2/16/2018
 ;   Labels added for Peek/Poke and comments. No new code.
 ;
+; 2/28/2018
+;   Relocated to $0B00.
+;   Incresed BASIC memory space.
+;   NOTE: When I load tinyadv.bas and run it, TB crashes. Old compiled
+;         versions also crash so my guess is it is some sort of conflict with
+;         new version of OS.
+;
 ;-----------------------------------------------------------------------------
 ;
 ; BUGS / Problems.
