@@ -80,6 +80,9 @@
 ;    Added BRAM switch to bank #0 at beginning of Cold start.
 ;   (part of TB BASIC RAM lies in the BRAM range.)
 ;
+; 3/1/2018
+;   Relocated to BASIC segment ($0B00).
+;
 ;--------------------------------------------------------------------------------------
 ; GVIM
 ; set tabstop=4 shiftwidth=4 expandtab
@@ -92,7 +95,7 @@
 ;
 ; Tiny Basic starts here
 ;
-.org      $4400                     ; Start of Basic.
+;.org      $4400                     ; Start of Basic.
 
 SOBAS:
 
@@ -272,6 +275,7 @@ LBL008:  lda (C_C2),Y
 LBL002:  .byte <ILTBL	;$70                  ; $70 - lo byte of IL address
 LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address
 
+BasicPrgStart = $2700
 ;
 ;Begin Cold Start
 ;
@@ -282,18 +286,18 @@ LBL003:  .byte >ILTBL	;$1B                  ; $1B - hi byte of IL address
 ; that can be loaded and used simultaneously with TB.
 ; $8000 to the end of writable memory is the BASIC memory space.
 ;
-COLD_S: lda #$00        ; Set memory bank to 0.
+COLD_S: lda #$00             ; Set memory bank to 0.
 		jsr mos_BankedRamSel
-        lda #$00        ; Load accumulator with lo byte of lower and upper
-                        ; prg memory limits
-         sta $20        ; Store in $20
-         sta $22        ; Store in $22
-         lda #$60       ; Load accumulator with hi byte of lower and upper
-                        ; prg memory limits
-         sta $21        ; Store in $21
-         sta $23        ; Store in $23
-		 ; NOTE: $22,$23 vector will be updated by routine below to be the
-         ;       upper RAM limit for TB.
+        lda #<BasicPrgStart  ; Load accumulator with lo byte of lower and upper
+                             ; prg memory limits
+        sta $20              ; Store in $20
+        sta $22              ; Store in $22
+        lda #>BasicPrgStart  ; Load accumulator with hi byte of lower and upper
+                             ; prg memory limits
+        sta $21             ; Store in $21
+        sta $23             ; Store in $23
+        ; NOTE: $22,$23 vector will be updated by routine below to be the
+        ;       upper RAM limit for TB.
 ;
 ;
 ; Begin test for free ram
@@ -1347,7 +1351,7 @@ ILTBL:
 
 .segment "MAIN"
 
-.org $4CF0    ; Address of main program
+;.org $4CF0    ; Address of main program
 
 ;FBLK:
 ;
@@ -1388,7 +1392,7 @@ PRMPT:   ldx #$2F                   ; Offset of prompt
 
 .segment "MESG"
 
-.org $4E00    ; Address of message area
+;.org $4E00    ; Address of message area
 MBLK:
 
 ;
@@ -1397,19 +1401,19 @@ MBLK:
 ;
 .byte "TINY BASIC FOR MKHBC-8-R2 6502"
 .byte  $0D, $0A ;, $0A
-.byte "Version: 1.0.8, 2/16/2018"
+.byte "Version: 1.1.0, 3/1/2018"
 .byte  $0D, $0A ;, $0A
 .byte  "(NOTE: USE UPPER CASE)"
 .byte  $0D, $0A ;, $0A
-.byte "TB resides at: $4400 - $4F67 ( 2 kB)",$0d,$0a
-.byte "ML code space: $5000 - $5FFF ( 4 kB)",$0d,$0a
-.byte "Basic program: $6000 - $BFFF (23 kB)",$0d,$0a
+.byte "TB resides at: $0B00 - $1700 ( 2 kB)",$0d,$0a
+.byte "ML code space: $1700 - $26FF ( 4 kB)",$0d,$0a
+.byte "Basic program: $2700 - $BFFF (38 kB)",$0d,$0a
 .byte "Boot ([C]old/[W]arm)? "
 .byte  $07, $FF
 
 .segment "SUBR"
 
-.org $4F00    ;address of subroutine area
+;.org $4F00    ;address of subroutine area
 
 SBLK:
 ;

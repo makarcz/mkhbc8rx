@@ -67,6 +67,6 @@ tinybas022: tinybas022.asm tinybasic.cfg
 
 tinybasic: tinybasic.asm tinybasic.cfg
 	cl65 --verbose --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybasic.map --listing tinybasic.asm
-	..\bin2hex -f tinybasic -o tinybasic_prg.txt -w 17408 -x 19696 -z
+	..\bin2hex -f tinybasic -o tinybasic_prg.txt -w 2816 -x 5104 -z
 
 all: clean lib hello enhmon clock conv

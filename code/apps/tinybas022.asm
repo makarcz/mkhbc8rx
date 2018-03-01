@@ -101,6 +101,9 @@
 ;   NOTE: When I load tinyadv.bas and run it, TB crashes. Old compiled
 ;         versions also crash so my guess is it is some sort of conflict with
 ;         new version of OS.
+;         3/1/2018: After more analysis I think the problem may be with the
+;                   BASIC program itself. The code uses some hardcoded
+;                   addresses to access ML procedures.
 ;
 ;-----------------------------------------------------------------------------
 ;
