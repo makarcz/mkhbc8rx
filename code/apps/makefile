@@ -17,6 +17,7 @@ clean:
 	del *.map
 	del *_prg.txt
 	del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock
+	del eh_basic
 
 lib: mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
 	@echo      Update library ...
@@ -68,5 +69,9 @@ tinybas022: tinybas022.asm tinybasic.cfg
 tinybasic: tinybasic.asm tinybasic.cfg
 	cl65 --verbose --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybasic.map --listing tinybasic.asm
 	..\bin2hex -f tinybasic -o tinybasic_prg.txt -w 2816 -x 5104 -z
+
+ehbasic: eh_basic.asm ehbasic.cfg
+	cl65 --verbose --asm-include-dir ..\system --config ehbasic.cfg --target none --mapfile ehbasic.map --listing eh_basic.asm
+	..\bin2hex -f eh_basic -o ehbasic_prg.txt -w 2816 -x 2816 -z
 
 all: clean lib hello enhmon clock conv

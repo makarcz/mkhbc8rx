@@ -98,18 +98,12 @@
 ; 2/28/2018
 ;   Relocated to $0B00.
 ;   Incresed BASIC memory space.
-;   NOTE: When I load tinyadv.bas and run it, TB crashes. Old compiled
-;         versions also crash so my guess is it is some sort of conflict with
-;         new version of OS.
-;         3/1/2018: After more analysis I think the problem may be with the
-;                   BASIC program itself. The code uses some hardcoded
-;                   addresses to access ML procedures.
 ;
 ;-----------------------------------------------------------------------------
 ;
 ; BUGS / Problems.
 ;
-; 1. Warm start doesn't seem to work.
+; 1. Warm start doesn't seem to work. - FIXED
 ;    When I exit TB by NMI, then re-enter it from monitor (x 4cf0) and do
 ;    a warm start, then CLEAR, I am not able to enter any new program lines.
 ;    Getting error #8 from TB which means BASIC memory overflow.
