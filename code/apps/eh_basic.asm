@@ -1,3 +1,4 @@
+; Derived from EhBASIC
 ; The code below was copied and adapted from  Lee Davison’s
 ; code of EhBasic to be ran on MKHBC-8-Rx hobby computer.
 ; Original comments and credits follow:
@@ -410,10 +411,10 @@ TK_MIDS		= TK_RIGHTS+1	; MID$ token
 
 ; offsets from a base of X or Y
 
-PLUS_0		= $00		; X or Y plus 0
-PLUS_1		= $01		; X or Y plus 1
-PLUS_2		= $02		; X or Y plus 2
-PLUS_3		= $03		; X or Y plus 3
+PLUS_0		= $30		; X or Y plus 0
+PLUS_1		= $31		; X or Y plus 1
+PLUS_2		= $32		; X or Y plus 2
+PLUS_3		= $33		; X or Y plus 3
 
 LAB_STAK	= $0100	; stack bottom, no offset
 
@@ -441,6 +442,9 @@ IRQ_vec 	= VEC_SV+2
 Ibuffs		= IRQ_vec+$14	; start of input buffer after IRQ/NMI code
 Ibuffe		= Ibuffs+$47	; end of input buffer
 
+VM65 = 1    ; uncomment this line to run in VM65 emulator
+;Debug = 1   ; uncomment this line to get debug BRK codes compiled
+
 ; This start can be changed to suit your system
 
 .segment "BASIC"
@@ -448,13 +452,21 @@ Ibuffe		= Ibuffs+$47	; end of input buffer
 
     JMP LAB_COLD
 
+.ifndef VM65
 ; I/O routines for MKHBCOS.
 .include "mkhbcos_ml.inc"
+.endif
 
 CHRIN:
+.ifndef VM65
 	JSR mos_KbHit	     ; Read from char IO address, non-blocking
+.else
+    LDA $FFE1
+.endif
 	BEQ ECHRIN		     ; if null, assume no character in buffer
+.ifndef VM65
     JSR mos_CallGetCh    ; consume character
+.endif
 	CMP #'a'		     ; < 'a'?
 	BCC DCHRIN		     ; yes, done
 	CMP #'{'		     ; >= '{'?
@@ -468,7 +480,11 @@ ECHRIN:
 	RTS
 
 CHROUT:
+.ifndef VM65
 	JSR mos_CallPutCh	 ; write to char IO address
+.else
+    STA $FFE0
+.endif
 	AND #$FF 		     ; set flags
 	RTS
 
@@ -507,7 +523,7 @@ LAB_2D4E:
 	DEX				; decrement count
 	BNE	LAB_2D4E		; loop if not all done
 
-; copy block from StrTab to $0000 - $0012
+; copy block from StrTab to $0030 - $0042
 
 LAB_GMEM:
 	LDX	#EndTab-StrTab-1	; set byte count-1
@@ -534,7 +550,15 @@ TabLoop:
 	JSR	LAB_CRLF		; print CR/LF
 	LDA	#<LAB_MSZM		; point to memory size message (low addr)
 	LDY	#>LAB_MSZM		; point to memory size message (high addr)
+.ifdef Debug
+    BRK
+    BRK
+.endif
 	JSR	LAB_18C3		; print null terminated string from memory
+.ifdef Debug
+    BRK
+    BRK
+.endif
 	JSR	LAB_INLN		; print "? " and get BASIC input
 	STX	Bpntrl		; set BASIC execute pointer low byte
 	STY	Bpntrh		; set BASIC execute pointer high byte
@@ -8723,5 +8747,8 @@ LAB_RMSG:	.byte	$0D,$0A,"Ready",$0D,$0A,$00
 
 LAB_IMSG:	.byte	" Extra ignored",$0D,$0A,$00
 LAB_REDO:	.byte	" Redo from start",$0D,$0A,$00
+
+; Copyright requirement.
+CPYRIGHT:   .byte   "Derived from EhBASIC",$00
 
 AA_end_basic:
