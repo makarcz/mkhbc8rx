@@ -12,9 +12,28 @@
 ; 2/18/2018
 ;   Removed hardcoded definition of 'sp' variable.
 ;   Added .include "zeropage.inc" to import ZP objects instead.
+;
+; 3/7/2018
+;   This header file is now included while compiling firmware as well as
+;   applications running on the system.
+;
+; 3/8/2018
+;   Added entries in kernel jump table.
+;
 ;-----------------------------------------------------------------------------
+.ifndef MKHBCOS_ML_INC
+.define MKHBCOS_ML_INC
 
 .include "zeropage.inc"     ; import zero page objects
+
+.import   __IO0_START__,    __IO0_SIZE__
+.import   __IO1_START__,    __IO1_SIZE__
+.import   __IO2_START__,    __IO2_SIZE__
+.import   __IO3_START__,    __IO3_SIZE__
+.import   __IO4_START__,    __IO4_SIZE__
+.import   __IO5_START__,    __IO5_SIZE__
+.import   __IO6_START__,    __IO6_SIZE__
+.import   __IO7_START__,    __IO7_SIZE__
 
 ; MOS registers and definitions.
 .define     Timer64Hz       $E2     ; 4-byte counter
@@ -28,7 +47,8 @@
 .define 	mos_StrPtr	    $E0
 .define		tmp_zpgPt		$F6
 .define		IOBase			$C000
-.define 	RTC				IOBase+256
+;.define 	RTC				IOBase+256
+.define     RTC             __IO1_START__
 
 .define 	DSCALADDR		RTC     ; port for accessing RTC reg. address
 .define		DSCALDATA		RTC+1   ; port for accessing RTC reg. data
@@ -93,8 +113,9 @@ DEVPRESENT_BANKRAM  =   %00100000
 DEVPRESENT_NOBRAM   =   %11011111
 DEVPRESENT_UART     =   %00010000
 DEVPRESENT_NOUART   =   %11101111
-DEVNOEXTRAM         =   %10011111   ; alias for
+;DEVNOEXTRAM         =   %10011111   ; alias for
                                     ; DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
+DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
 
 ; Kernel jump table.
 .define     mos_KbHit           $FFCC
@@ -112,3 +133,10 @@ DEVNOEXTRAM         =   %10011111   ; alias for
 .define		mos_CallPutCh	    $FFF0
 .define		mos_CallGets	    $FFF3
 .define		mos_CallPuts	    $FFF6
+.define     mos_MemInit         $FFC9
+.define     mos_MemCpy          $FFC6
+.define     mos_RamBank         $FFC3
+.define     mos_PrnDtTm         $FFC0
+.define     mos_SetDtTm         $FFBD
+
+.endif

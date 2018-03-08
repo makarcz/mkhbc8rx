@@ -37,6 +37,9 @@
  *    Added comment for KBHIT macro.
  *    Added Constants section and IO address range definitions.
  *
+ * 3/8/2018
+ *    Added entries in kernel jump table.
+ *
  */
 
 #ifndef MKHBCOS_ML
@@ -77,20 +80,19 @@
 #define MOS_PROCRMEM	  0xFFE4
 #define MOS_PROCWMEM	  0xFFE7
 #define MOS_PROCEXEC	  0xFFEA
+#define MOS_MEMINIT       0xFFC9
+#define MOS_MEMCPY        0xFFC6
+#define MOS_BRAMSEL       0xFFC3
+#define MOS_PRNDT         0xFFC0
+#define MOS_SETDT         0xFFBD
 
 /*
- * The addresses below need to be moved to Kernel Jump Table.
+ * The addresses below (if any) need to be moved to Kernel Jump Table.
  * Before they are, they need to be changed each time firmware code in
  * system/mkhbcos_fmware.s is altered in such a way that relocates the code.
  * NOTE: These are monitor commands, they require properly formed command
  *       in the PromptLine entered by user at address $80.
  */
-
-#define MOS_MEMINIT       0xE937
-#define MOS_MEMCPY        0xE8B5
-#define MOS_BRAMSEL       0xE88D
-#define MOS_PRNDT         0xE87B
-#define MOS_SETDT         0xE884
 
 // Macros
 

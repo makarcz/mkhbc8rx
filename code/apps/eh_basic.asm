@@ -34,8 +34,8 @@ Usrjph		= Usrjmp+2	; USR function JMP vector high byte
 Nullct		= $0D		; nulls output after each line
 TPos		= $0E		; BASIC terminal position byte
 TWidth		= $0F		; BASIC terminal width byte
-Iclim		= $20		; input column limit
-Itempl		= $21		; temporary integer low byte
+Iclim		= $10		; input column limit
+Itempl		= $11		; temporary integer low byte
 Itemph		= Itempl+1	; temporary integer high byte
 
 nums_1		= Itempl	; number to bin/hex string convert MSB
@@ -411,10 +411,10 @@ TK_MIDS		= TK_RIGHTS+1	; MID$ token
 
 ; offsets from a base of X or Y
 
-PLUS_0		= $30		; X or Y plus 0
-PLUS_1		= $31		; X or Y plus 1
-PLUS_2		= $32		; X or Y plus 2
-PLUS_3		= $33		; X or Y plus 3
+PLUS_0		= $00		; X or Y plus 0
+PLUS_1		= $01		; X or Y plus 1
+PLUS_2		= $02		; X or Y plus 2
+PLUS_3		= $03		; X or Y plus 3
 
 LAB_STAK	= $0100	; stack bottom, no offset
 
@@ -442,7 +442,7 @@ IRQ_vec 	= VEC_SV+2
 Ibuffs		= IRQ_vec+$14	; start of input buffer after IRQ/NMI code
 Ibuffe		= Ibuffs+$47	; end of input buffer
 
-VM65 = 1    ; uncomment this line to run in VM65 emulator
+;VM65 = 1    ; uncomment this line to run in VM65 emulator
 ;Debug = 1   ; uncomment this line to get debug BRK codes compiled
 
 ; This start can be changed to suit your system
@@ -450,44 +450,12 @@ VM65 = 1    ; uncomment this line to run in VM65 emulator
 .segment "BASIC"
 ;.ORG $0B00
 
-    JMP LAB_COLD
+;    JMP LAB_COLD
 
 .ifndef VM65
 ; I/O routines for MKHBCOS.
 .include "mkhbcos_ml.inc"
 .endif
-
-CHRIN:
-.ifndef VM65
-	JSR mos_KbHit	     ; Read from char IO address, non-blocking
-.else
-    LDA $FFE1
-.endif
-	BEQ ECHRIN		     ; if null, assume no character in buffer
-.ifndef VM65
-    JSR mos_CallGetCh    ; consume character
-.endif
-	CMP #'a'		     ; < 'a'?
-	BCC DCHRIN		     ; yes, done
-	CMP #'{'		     ; >= '{'?
-	BCS DCHRIN		     ; yes, done
-	AND #$5F		     ; no, convert to upper case
-DCHRIN:
-	SEC 			     ; There is character waiting, set CARRY flag
-	RTS
-ECHRIN:
-	CLC 			     ; no character in buffer, clear CARRY
-	RTS
-
-CHROUT:
-.ifndef VM65
-	JSR mos_CallPutCh	 ; write to char IO address
-.else
-    STA $FFE0
-.endif
-	AND #$FF 		     ; set flags
-	RTS
-
 
 Ram_base	= $3F00	; start of user RAM (set as needed, should be page aligned)
 Ram_top		= $C000	; end of user RAM+1 (set as needed, should be page aligned)
@@ -552,14 +520,18 @@ TabLoop:
 	LDY	#>LAB_MSZM		; point to memory size message (high addr)
 .ifdef Debug
     BRK
-    BRK
+    NOP
 .endif
 	JSR	LAB_18C3		; print null terminated string from memory
 .ifdef Debug
     BRK
-    BRK
+    NOP
 .endif
 	JSR	LAB_INLN		; print "? " and get BASIC input
+.ifdef Debug
+    BRK
+    NOP
+.endif
 	STX	Bpntrl		; set BASIC execute pointer low byte
 	STY	Bpntrh		; set BASIC execute pointer high byte
 	JSR	LAB_GBYT		; get last byte back
@@ -8751,4 +8723,34 @@ LAB_REDO:	.byte	" Redo from start",$0D,$0A,$00
 ; Copyright requirement.
 CPYRIGHT:   .byte   "Derived from EhBASIC",$00
 
+CHRIN:
+.ifndef VM65
+	JSR mos_KbHit	     ; Read from char IO address, non-blocking
+.else
+    LDA $FFE1
+.endif
+	BEQ ECHRIN		     ; if null, assume no character in buffer
+.ifndef VM65
+    JSR mos_CallGetCh    ; consume character
+.endif
+	CMP #'a'		     ; < 'a'?
+	BCC DCHRIN		     ; yes, done
+	CMP #'{'		     ; >= '{'?
+	BCS DCHRIN		     ; yes, done
+	AND #$5F		     ; no, convert to upper case
+DCHRIN:
+	SEC 			     ; There is character waiting, set CARRY flag
+	RTS
+ECHRIN:
+	CLC 			     ; no character in buffer, clear CARRY
+	RTS
+
+CHROUT:
+.ifndef VM65
+	JSR mos_CallPutCh	 ; write to char IO address
+.else
+    STA $FFE0
+.endif
+	AND #$FF 		     ; set flags
+	RTS
 AA_end_basic:

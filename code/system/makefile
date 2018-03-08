@@ -31,7 +31,7 @@ romlib: mkhbcos_fmware.o mkhbcos_serialio.o mkhbcos_ansi.o mkhbcos_ds1685.o roml
 	@echo Startup code listing: mkhbcos_fmware.lst
 
 mkhbcos_fmware.o: mkhbcos_fmware.s
-	ca65 mkhbcos_fmware.s -l
+	ca65 -v mkhbcos_fmware.s -l
 
 mkhbcos_serialio.o: mkhbcos_serialio.s
 	ca65 mkhbcos_serialio.s

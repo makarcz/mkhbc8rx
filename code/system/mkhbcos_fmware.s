@@ -33,6 +33,15 @@
 ; 2/27/2018
 ;   Minor code formatting.
 ;
+; 3/7/2018
+;   Changed location of temporary Accumulator store and custom vectors.
+;   Deleted custom vectors for get string and print string functions.
+;   (Don't really need them, get character / print character are sufficient.)
+;   Header mkhbcos_ml.inc is now included.
+;
+; 3/8/2018
+;   Added new entries to kernel jump table.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -40,19 +49,12 @@
 
 .export   __STARTUP__ : absolute = 1        ; Mark as startup
 .import   __RAM_START__,    __RAM_SIZE__    ; Linker generated
-.import   __IO0_START__,    __IO0_SIZE__
-.import   __IO1_START__,    __IO1_SIZE__
-.import   __IO2_START__,    __IO2_SIZE__
-.import   __IO3_START__,    __IO3_SIZE__
-.import   __IO4_START__,    __IO4_SIZE__
-.import   __IO5_START__,    __IO5_SIZE__
-.import   __IO6_START__,    __IO6_SIZE__
-.import   __IO7_START__,    __IO7_SIZE__
 .import   __LIBARG_START__, __LIBARG_SIZE__
 
 .import    copydata, zerobss, initlib, donelib
 
-.include  "zeropage.inc"
+;.include  "zeropage.inc"
+.include  "mkhbcos_ml.inc"
 
 ; ---------------------------------------------------------------------------
 ; Place the startup code in a special segment
@@ -116,8 +118,8 @@ FuncCodeArgs    =   __LIBARG_START__+5   ; actual args list starts here
 
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
-VerMin      = 6
-VerMnt      = 4
+VerMin      = 8
+VerMnt      = 0
 
 ; 6502 CPU
 
@@ -125,14 +127,6 @@ VerMnt      = 4
 
 RamBase     = $0000
 RamEnd      = RamBase+$7FFF 	;with no VRAM option
-
-; 2764 Erasable Programmable Read Only Memory (EPROM)
-
-;RomBase     = $E000		;2nd EPROM chip
-
-; I/O expansion addresses
-
-;IOSTART = __IO0_START__ ; $C000
 
 IO0 =   __IO0_START__   ;IOSTART   ; $C000 - $C0FF
 IO1 =   __IO1_START__   ;IO0+256   ; $C100 - $C1FF
@@ -179,9 +173,9 @@ UartTxQue   = $200          ; 256 byte output queue
 UartRxQue   = $300          ; 256 byte input queue
 
 ; MOS Prompt variables
-PromptLine  = $80           ; Prompt line (entered by user)
-PromptMax   = $50           ; An 80-character line is permitted ($80 to $CF)
-PromptLen   = $D0           ; Location of length variable
+PromptLine  = mos_PromptLine ; Prompt line (entered by user)
+PromptMax   = $50            ; An 80-character line is permitted ($80 to $CF)
+PromptLen   = mos_PromptLen  ; Location of length variable
 
 ; MOS internal/general variables
 Error       = $D1           ; Stores error code from some subroutines
@@ -198,66 +192,20 @@ StackDumpV  = $DE           ; Flag for a valid stack dump (only allows one)
 StackDump   = $DF           ; Storage for stack dump pointer on interrupt
 
 ; MOS I/O Function variables
-StrPtr      = $E0           ; String pointer for I/O functions (2 bytes)
+StrPtr      = mos_StrPtr    ; String pointer for I/O functions (2 bytes)
 
 ; MOS Debug variables
 
-; MOS Uart variables
+; MOS Uart variables (NOTE: some are defined in mkhbcos_ml.inc)
 UartTxInPt  = $F0           ; Tx head pointer, for chars placed in buf
 UartTxOutPt = $F1           ; Tx tail pointer, for chars taken from buf
-UartRxInPt  = $F2           ; Rx head pointer, for chars placed in buf
-UartRxOutPt = $F3           ; Rx tail pointer, for chars taken from buf
+;UartRxInPt  = $F2           ; Rx head pointer, for chars placed in buf
+;UartRxOutPt = $F3           ; Rx tail pointer, for chars taken from buf
 UartCtRam   = $F4           ; Control register in RAM
 UartStRam   = $F5           ; Status register in RAM
 
 ; MOS DS1685 (RTC) registers and variables
-
-RTC         = IO1   ; base address of RTC chip DS-1685
-DSCALADDR   = RTC
-DSCALDATA   = RTC+1
-
-Timer64Hz   = $E2           ; 4-byte counter incremented with each periodic
-                            ; interrupt from RTC
-RegB        = $F6
-RegA        = $F7
-RegXB       = $F8
-RegXA       = $F9
-RegC        = $FA
-Temp        = $FB
-BankNum     = $FC
-RamAddr     = $FD
-RamVal      = $FE
-
-ExtRamAddr = $50
-ExtRamPort = $53
-
-; DS RTC registers mask bits
-
-; reg. A
-DSC_REGA_UIP	=	%10000000
-DSC_REGA_DV2	=	%01000000
-DSC_REGA_DV1	=	%00100000
-DSC_REGA_DV0	=	%00010000
-DSC_REGA_RS3	=	%00001000
-DSC_REGA_RS2	=	%00000100
-DSC_REGA_RS1	=	%00000010
-DSC_REGA_RS0	=	%00000001
-; aliases
-DSC_REGA_CTDWN	=	DSC_REGA_DV2
-DSC_REGA_OSCEN	=	DSC_REGA_DV1
-DSC_REGA_BSEL	=	DSC_REGA_DV0
-DSC_REGA_BANK0	=	$EF
-DSC_REGA_BANK1	=	$10
-
-; reg. B
-DSC_REGB_SET	=	%10000000
-DSC_REGB_PIE	=	%01000000
-DSC_REGB_AIE	=	%00100000
-DSC_REGB_UIE	=	%00010000
-DSC_REGB_SQWE	=	%00001000
-DSC_REGB_DM		=	%00000100
-DSC_REGB_24o12  =	%00000010
-DSC_REGB_DSE	=	%00000001
+; (NOTE: most are defined in header mkhbcos_ml.inc)
 
 ; reg. C
 DSC_REGC_IQRF   =   %10000000
@@ -265,17 +213,12 @@ DSC_REGC_PF     =   %01000000
 DSC_REGC_AF     =   %00100000
 DSC_REGC_UF     =   %00010000
 
-
-; aliases
-
-DSC_REGB_UNSET  =	%01111111
-
 ; MOS Banked memory bank switching register and shadow reg. in RAM.
 ; Write only, value $00 .. $07 (bank#).
 ; Selects RAM Bank in address range $8000 .. $BFFF.
 
 RamBankSwitch   = IO0
-RamBankNum      = $E6
+;RamBankNum      = $E6  ; defined in mkhbcos_ml.inc
 
 ; MOS Customizable jump vectors
 ; Program can modify these vectors
@@ -285,30 +228,16 @@ RamBankNum      = $E6
 ; Custom IRQ handler routine should end with a jump to standard
 ; handler. Custom I/O function routine should end with RTS.
 
-StoreAcc	= 	$11			; Temporary Accumulator store.
-IrqVect		=	$0012		; Customizable IRQ vector
-GetChVect	=	$0014		; Custom GetCh function jump vector
-PutChVect	=	$0016		; Custom PutCh function jump vector
-GetsVect	=	$0018		; Custom Gets function jump vector
-PutsVect	=	$001a		; Custom Puts function jump vector
+StoreAcc    =   $FF         ; Temporary Accumulator store.
+IrqVect     =   $00E8       ; Customizable IRQ vector
+GetChVect   =   $00EA       ; Custom GetCh function jump vector
+PutChVect   =   $00EC       ; Custom PutCh function jump vector
 
-; MOS device detection flags.
+; MOS device detection flags are defined in mkhbcos_ml.inc
 
-DetectedDevices     =   $E7
+DetectedDevices     =   DetectedDev
 
-DEVPRESENT_RTC      =   %10000000
-DEVPRESENT_NORTC    =   %01111111
-DEVPRESENT_EXTRAM   =   %01000000
-DEVPRESENT_NOEXTRAM =   %10111111
-DEVPRESENT_BANKRAM  =   %00100000
-DEVPRESENT_NOBRAM   =   %11011111
-DEVPRESENT_UART     =   %00010000
-DEVPRESENT_NOUART   =   %11101111
-DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
-
-;.ORG RomBase
-
-    ; Header
+; Header
 TxtHeader:
 	.BYTE	"MKHBC-8-R2, MOS 6502 system "
 .ifdef Debug
@@ -453,11 +382,12 @@ IRQJUMP:
 	jmp (IrqVect)
 	;jmp IRQPROC
 
-;-------------------------------------------------------------------------------
-;-------------------------------------------------------------------------------
-; Non Maskable Interrupt Vector Entry Point and Interrupt Service Routines (ISR)
-;-------------------------------------------------------------------------------
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
+; Non Maskable Interrupt Vector Entry Point and Interrupt Service Routines
+; (ISR)
+;-----------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 
 NMIPROC:
 
@@ -709,14 +639,32 @@ Cont001:
 	sta PutChVect
 	lda #>RomPutCh
 	sta PutChVect+1
-	lda #<RomGets		; initialize Gets function jump vector
-	sta GetsVect
-	lda #>RomGets
-	sta GetsVect+1
-	lda #<RomPuts		; initialize Puts function jump vector
-	sta PutsVect
-	lda #>RomPuts
-	sta PutsVect+1
+	;lda #<RomGets		; initialize Gets function jump vector
+	;sta GetsVect
+	;lda #>RomGets
+	;sta GetsVect+1
+	;lda #<RomPuts		; initialize Puts function jump vector
+	;sta PutsVect
+	;lda #>RomPuts
+	;sta PutsVect+1
+    ; NOP-s below replace commented code above.
+    ; I want to keep the entry point addresses in the same place.
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
 
 .ifdef Debug
     ; this is fake, just checking if UART present flag did not get reset
@@ -1708,7 +1656,10 @@ MOSMemInit2:
 ;-------------------------------------------------------------------------------
 
 Puts:
-	jmp (PutsVect)
+	;jmp (PutsVect)
+    nop
+    nop
+    nop
 
 RomPuts:
 
@@ -1773,7 +1724,10 @@ PutChEn:
 
 GetLine:
 
-	jmp (GetsVect)
+	;jmp (GetsVect)
+    nop
+    nop
+    nop
 
 RomGets:
 
@@ -2585,6 +2539,23 @@ BankedRamSel:
 ;-----------------------------------------------------------------------------
 .segment "KERN"
 
+CallSetDt:      ; $FFBD
+    jmp MOSSetDtTm
+
+CallPrnDt:      ; $FFC0
+    jmp MOSPrintDtTm
+
+; NOTE: This function is different than CallBankRamSel.
+;       It expects the command and arguments entered by user in the PromptLine
+;       buffer, then it interprets it accordingly.
+CallRamBank:    ; $FFC3
+    jmp MOSRamBank
+
+CallMemCpy:     ; $FFC6
+    jmp MOSMemCpy
+
+CallMemInit:    ; $FFC9
+    jmp MOSMemInit
 ;.ORG    $FFCC
 CallKbHit:
   jmp KbHit

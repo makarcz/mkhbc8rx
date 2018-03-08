@@ -74,4 +74,8 @@ ehbasic: eh_basic.asm ehbasic.cfg
 	cl65 --verbose --asm-include-dir ..\system --config ehbasic.cfg --target none --mapfile ehbasic.map --listing eh_basic.asm
 	..\bin2hex -f eh_basic -o ehbasic_prg.txt -w 2816 -x 2816 -z
 
-all: clean lib hello enhmon clock conv
+chess: microchess.asm microchess.cfg
+	cl65 --verbose --asm-include-dir ..\system --config microchess.cfg --target none --mapfile microchess.map --listing microchess.asm
+	..\bin2hex -f microchess -o microchess_prg.txt -w 2816 -x 2816
+
+all: clean lib hello enhmon clock conv tinybasic tinybas022 chess

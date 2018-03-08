@@ -14,6 +14,11 @@
 ; 		Modified by Marek Karcz to run on MKHBC-8-Rx under MKHBCOS
 ;       (derivative of M.O.S. by Scott Chidester)
 ;
+; 3/8/2018
+;   Relocated to $0B00. There is a problem, program doesn't work properly.
+;   After 3-4 moves the board state is not consistent with the history of
+;   the moves.
+;
 ; 6551 I/O Port Addresses
 ;
 ;ACIADat    =    $7F70
@@ -22,17 +27,18 @@
 ;ACIACtl    =    $7F73
 
 ; M.O.S. API defines (kernal)
+.include "mkhbcos_ml.inc"
 
-.define		mos_PromptLine	$80
-.define		mos_PromptLen	$D0
-.define 	mos_StrPtr		$E0
-.define		tmp_zpgPt		$F6     ; WARNING: M.O.S. RTC regs RAM shadow copy starts
+;.define		mos_PromptLine	$80
+;.define		mos_PromptLen	$D0
+;.define 	mos_StrPtr		$E0
+;.define		tmp_zpgPt		$F6     ; WARNING: M.O.S. RTC regs RAM shadow copy starts
                                     ; here as well. This may affect RTC operation.
                                     ; Consider changing. Free space: $E7 .. $EF (9 bytes)
-.define		mos_CallGetCh	$FFED
-.define		mos_CallGets	$FFF3
-.define		mos_CallPutCh	$FFF0
-.define		mos_CallPuts	$FFF6
+;.define		mos_CallGetCh	$FFED
+;.define		mos_CallGets	$FFF3
+;.define		mos_CallPutCh	$FFF0
+;.define		mos_CallPuts	$FFF6
 
 
 ;
@@ -88,7 +94,7 @@ temp    =   $4C
 
 .segment "CODE"
 
-        .org    $0400            ; load into RAM @ $1000-$15FF
+;        .org    $0400            ; load into RAM @ $1000-$15FF
 
         LDA     #$00        ; REVERSE TOGGLE
         STA     REV
@@ -898,7 +904,7 @@ cph:          .byte    "KQCCBBRRPPPPPPPPKQCCBBRRPPPPPPPP"
 
 .segment "DATA"
 
-	.ORG $0920
+;	.ORG $0920
 
 SETW:       .byte     $03, $04, $00, $07, $02, $05, $01, $06
             .byte     $10, $17, $11, $16, $12, $15, $14, $13
