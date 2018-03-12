@@ -42,6 +42,9 @@
 ; 3/8/2018
 ;   Added new entries to kernel jump table.
 ;
+; 3/11/2018
+;   Optimized IRQ service routine.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -118,7 +121,7 @@ FuncCodeArgs    =   __LIBARG_START__+5   ; actual args list starts here
 
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
-VerMin      = 8
+VerMin      = 9
 VerMnt      = 0
 
 ; 6502 CPU
@@ -498,11 +501,25 @@ SrcIrqLine:
 
     lda #DEVPRESENT_RTC
     bit DetectedDevices
-    beq IRQRTCNotPresent    ; RTC chip was not detected
+    beq IrqChkUART          ; RTC chip was not detected
     lda #$0C                ; Get status from DS1685 (RTC)
     jsr RdRTC               ; Read RegC to clear IRQ flags and for later check
-    sta RegC                ; store in RAM
-IRQRTCNotPresent:
+    sta RegC                ; store reg C in RAM
+    and #DSC_REGC_IQRF      ; check interrupt request flag
+    beq IrqChkUART          ; not set, check next source
+    lda RegC
+    and #DSC_REGC_PF        ; check periodic interrupt flag
+    beq IrqChkUART          ; not set, check next source
+    ; DS1685 interrupt service routine
+    ; For now it is just incrementing a counter.
+    inc Timer64Hz
+    bne IrqChkUART
+    inc Timer64Hz+1
+    bne IrqChkUART
+    inc Timer64Hz+2
+    bne IrqChkUART
+    inc Timer64Hz+3
+IrqChkUART:
     lda #DEVPRESENT_UART
     bit DetectedDevices
     beq IrqChkNxt01         ; UART chip not detected
@@ -510,8 +527,16 @@ IRQRTCNotPresent:
     sta UartStRam           ; Store in MOS variable in RAM
     and #UART_IRQ           ; check the IRQ bit in status reg.
     beq IrqChkNxt01         ; bit not set, check next source
-    jmp Irq6850             ; bit set, jump to service 6850 interrupt
-
+    ; 6850 Interrupt Service Routine
+    lda #UART_RDRF
+    bit UartStRam           ; Check receiver full flag
+    beq CheckXmt            ; Branch to next check if flag not set
+    jsr UartReceive         ; Receive character into buffer
+CheckXmt:
+    lda #UART_TDRE
+    bit UartStRam           ; Check transmitter empty flag
+    beq CheckError          ; Branch to next check if flag not set
+    jsr UartTransmit        ; Handle transmitter
 IrqChkNxt01:
 
 ; here goes the code checking status bits from other possible
@@ -527,46 +552,6 @@ IrqChkNxt01:
 ;IrqChkNxt02:
 ;
 ;   [... and so on ...]
-
-    lda #DEVPRESENT_RTC
-    bit DetectedDevices
-    beq IrqChkNxt02         ; RTC chip is not present
-    ; check RTC (DS1685) status (stored in RegC)
-    lda RegC
-    and #DSC_REGC_IQRF      ; check interrupt request flag
-    beq IrqChkNxt02         ; not set, check next source
-    lda RegC
-    and #DSC_REGC_PF        ; check periodic interrupt flag
-    beq IrqChkNxt02         ; not set, check next source
-    ; DS1685 interrupt service routine
-    ; For now it is just incrementing a counter.
-    inc Timer64Hz
-    bne IrqChkNxt02
-    inc Timer64Hz+1
-    bne IrqChkNxt02
-    inc Timer64Hz+2
-    bne IrqChkNxt02
-    inc Timer64Hz+3
-
-IrqChkNxt02:
-
-; end of checking, if none of the devices were IRQ source, go to IrqDone
-; NOTE: also, after each service routine, function should jump to IrqDone
-
-    jmp IrqDone
-
-; 6850 Interrupt Service Routine
-Irq6850:
-
-    lda #UART_RDRF
-    bit UartStRam           ; Check receiver full flag
-    beq CheckXmt            ; Branch to next check if flag not set
-    jsr UartReceive         ; Receive character into buffer
-CheckXmt:
-    lda #UART_TDRE
-    bit UartStRam           ; Check transmitter empty flag
-    beq CheckError          ; Branch to next check if flag not set
-    jsr UartTransmit        ; Handle transmitter
 CheckError:
     ; todo--check 6850 errors and/or other conditions
 
@@ -625,46 +610,20 @@ Cont001:
                         ; (DetectExtRAM switches bank)
     jsr InitDS1685      ; Initialize RTC (it also detects RTC chip)
 
-	; Initialize custom IRQ and I/O jump vectors.
+    ; Initialize custom IRQ and I/O jump vectors.
 
-	lda #<IRQPROC		; initialize IRQ handler jump vector
-	sta IrqVect
-	lda #>IRQPROC
-	sta IrqVect+1
-	lda #<RomGetCh		; initialize GetCh function jump vector
-	sta GetChVect
-	lda #>RomGetCh
-	sta GetChVect+1
-	lda #<RomPutCh		; initialize PutCh function jump vector
-	sta PutChVect
-	lda #>RomPutCh
-	sta PutChVect+1
-	;lda #<RomGets		; initialize Gets function jump vector
-	;sta GetsVect
-	;lda #>RomGets
-	;sta GetsVect+1
-	;lda #<RomPuts		; initialize Puts function jump vector
-	;sta PutsVect
-	;lda #>RomPuts
-	;sta PutsVect+1
-    ; NOP-s below replace commented code above.
-    ; I want to keep the entry point addresses in the same place.
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+    lda #<IRQPROC		; initialize IRQ handler jump vector
+    sta IrqVect
+    lda #>IRQPROC
+    sta IrqVect+1
+    lda #<RomGetCh		; initialize GetCh function jump vector
+    sta GetChVect
+    lda #>RomGetCh
+    sta GetChVect+1
+    lda #<RomPutCh		; initialize PutCh function jump vector
+    sta PutChVect
+    lda #>RomPutCh
+    sta PutChVect+1
 
 .ifdef Debug
     ; this is fake, just checking if UART present flag did not get reset
@@ -1081,18 +1040,18 @@ InitDS1685OK:
     sta Timer64Hz+1
     sta Timer64Hz+2
     sta Timer64Hz+3
-    lda #DSC_REGB_SQWE      ; enable square-wave output
-    ora #DSC_REGB_DM        ; set binary mode
-    ora #DSC_REGB_24o12     ; set 24h format
-    ora #DSC_REGB_PIE       ; enable periodic interrupt
+    lda #DSC_REGB_SQWE     ; enable square-wave output
+    ora #DSC_REGB_DM       ; set binary mode
+    ora #DSC_REGB_24o12    ; set 24h format
+    ora #DSC_REGB_PIE      ; enable periodic interrupt
     sta RegB
-    lda #DSC_REGA_OSCEN     ; oscillator ON
-    ora #$0A                ; 64 Hz on SQWE and PF
+    lda #DSC_REGA_OSCEN    ; oscillator ON
+    ora #$0A               ; 64 Hz on SQWE and PF
     sta RegA
-    lda #$B0                ; AUX battery enable, CS=1 (12.5pF crystal), E32K=0
-                            ; (SQWE freq. set by RS3..RS0), RCE=1 (/RCLR enable)
+    lda #$B0               ; AUX battery enable, CS=1 (12.5pF crystal), E32K=0
+                           ; (SQWE freq. set by RS3..RS0), RCE=1 (/RCLR enable)
     sta RegXB
-    lda #$08                ; set PWR pin to high impedance
+    lda #$08               ; set PWR pin to high impedance
     sta RegXA
     ; *** call the actual RTC chip driver function
     jsr DS1685Init

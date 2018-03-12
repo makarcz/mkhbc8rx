@@ -14,34 +14,31 @@
 ; 		Modified by Marek Karcz to run on MKHBC-8-Rx under MKHBCOS
 ;       (derivative of M.O.S. by Scott Chidester)
 ;
-; 3/8/2018
-;   Relocated to $0B00. There is a problem, program doesn't work properly.
-;   After 3-4 moves the board state is not consistent with the history of
-;   the moves.
+; 3/8..11/2018
+;   Relocated to $0B00.
+;   Change in implementation of banner and board paint flags.
+;   Include header for mkhbcos.
 ;
-; 6551 I/O Port Addresses
+;-----------------------------------------------------------------------------
+; BUGS
 ;
-;ACIADat    =    $7F70
-;ACIASta    =    $7F71
-;ACIACmd    =    $7F72
-;ACIACtl    =    $7F73
+; 1) There is a problem, program doesn't work properly if the RTC periodic
+;    interrupts are enabled.
+;   After several moves the board state is not consistent with the history of
+;   the moves. It gets corrupt. (pieces disappear, move to different locations
+;   all by themselves, etc.)
+;   I noticed so far that when I take out BRAM/RTC card so that RTC service
+;   interrupt becomes inactive and there are no periodic interrupts from RTC,
+;   this problem doesn't occur. So I disable periodic interrupts from RTC
+;   and re-enable them at exit. Not an elegant solution and one day I may need
+;   to fix whatever the root cause of this conflict is.
+;
+;-----------------------------------------------------------------------------
+;
 
 ; M.O.S. API defines (kernal)
 .include "mkhbcos_ml.inc"
 
-;.define		mos_PromptLine	$80
-;.define		mos_PromptLen	$D0
-;.define 	mos_StrPtr		$E0
-;.define		tmp_zpgPt		$F6     ; WARNING: M.O.S. RTC regs RAM shadow copy starts
-                                    ; here as well. This may affect RTC operation.
-                                    ; Consider changing. Free space: $E7 .. $EF (9 bytes)
-;.define		mos_CallGetCh	$FFED
-;.define		mos_CallGets	$FFF3
-;.define		mos_CallPutCh	$FFF0
-;.define		mos_CallPuts	$FFF6
-
-
-;
 ; page zero variables
 ;
 BOARD   =	$50
@@ -87,36 +84,82 @@ DIS1    =	$4B
 DIS2    =	$4A
 DIS3    =	$49
 temp    =   $4C
+PAINTFL =   $10
+SAVREG1 =   $11
+SAVREG2 =   $12
+SAVREG3 =   $13
+SAVSTK1 =   $14
+SAVSTK2 =   $15
+SAVDEVR =   $16
 
-;
-;
-;
+PAINT_BOARD     = %10000000
+PAINT_BANNER    = %01000000
 
 .segment "CODE"
 
-;        .org    $0400            ; load into RAM @ $1000-$15FF
-
-        LDA     #$00        ; REVERSE TOGGLE
+        ; save current return address
+        SEI
+        PLA
+        STA    SAVSTK1
+        PLA
+        STA    SAVSTK2
+        ; initialize delay (count down from $FFFF)
+        LDA     #$ff
+        STA     SAVREG1
+        STA     SAVREG2
+        ; disable RTC service in ISR
+        LDA     DetectedDev
+        STA     SAVDEVR
+        AND     #DEVPRESENT_RTC
+        BEQ     ST01    ; no need to do anything if RTC is not present
+        ; RTC is present : disable periodic interrupts from it
+        ; (A temporary hack to work around a bug in MKHBCOS's ISR)
+        lda     #$0b
+        jsr     RdRTC
+        and     #~DSC_REGB_PIE     ; disable periodic interrupt
+        tax
+        lda     #$0b
+        jsr     WrRTC
+ST00:   ; make MKHBCOS think that RTC is not present
+        LDA     SAVDEVR
+        AND     #DEVPRESENT_NORTC
+        STA     DetectedDev
+        CLI
+ST01:   ; count down from $FFFF to $0000
+        ; this delay is needed when working with PropTermMK as terminal device
+        DEC     SAVREG1
+        BNE     ST01
+        DEC     SAVREG2
+        BNE     ST01
+        ; flush any input characters in buffer
+ST02:
+        JSR     mos_KbHit
+        BEQ     INITFLAGS       ; no keypress in buffer, proceed
+        JSR     mos_CallGetCh   ; consume character
+        BNE     ST02            ; check again until buffer empty
+INITFLAGS:
+        LDA     #PAINT_BOARD    ; set both flags to paint
+        ORA     #PAINT_BANNER   ; board and copyright banner
+        STA     PAINTFL
+        LDA     #$00            ; REVERSE TOGGLE
         STA     REV
         ;JSR     Init_6551
-CHESS:  ;CLD     			; INITIALIZE
-        ;LDX    #$FF		; TWO STACKS
-        ;TXS
+CHESS:  CLD
+        ; initialize 2 stacks
+        LDX    #$FF
+        TXS
         LDX    #$C8
         STX    SP2
 ;
-;       ROUTINES TO LIGHT LED
-;       DISPLAY AND GET KEY
-;       FROM KEYBOARD
+;       I/O routines
 ;
 OUT:    JSR    POUT       ; DISPLAY AND
         JSR    KIN        ; GET INPUT   *** my routine waits for a keypress
-;        CMP    OLDKY        ; KEY IN ACC  *** no need to debounce
-;        BEQ    OUT        ; (DEBOUNCE)
-;        STA    OLDKY
-;
         CMP    #$43        ; [C]
         BNE    NOSET       ; SET UP
+        LDA    PAINTFL
+        ORA    #PAINT_BOARD
+        STA    PAINTFL
         LDX    #$1F        ; BOARD
 WHSET:  LDA    SETW,X      ; FROM
         STA    BOARD,X     ; SETW
@@ -129,6 +172,9 @@ WHSET:  LDA    SETW,X      ; FROM
 ;
 NOSET:  CMP    #$45        ; [E]
         BNE    NOREV       ; REVERSE
+        LDA    PAINTFL
+        ORA    #PAINT_BOARD
+        STA    PAINTFL
         JSR    REVERSE     ; BOARD IS
         SEC
         LDA    #$01
@@ -139,6 +185,9 @@ NOSET:  CMP    #$45        ; [E]
 ;
 NOREV:  CMP    #$40         ; [P]
         BNE    NOGO         ; PLAY CHESS
+        LDA    PAINTFL
+        ORA    #PAINT_BOARD
+        STA    PAINTFL
         JSR    GO
 CLDSP:  STA    DIS1         ; DISPLAY
         STA    DIS2         ; ACROSS
@@ -147,13 +196,43 @@ CLDSP:  STA    DIS1         ; DISPLAY
 ;
 NOGO:   CMP    #$0D         ; [Enter]
         BNE    NOMV         ; MOVE MAN
+        PHA
+        LDA    PAINTFL
+        ORA    #PAINT_BOARD
+        STA    PAINTFL
+        PLA
         JSR    MOVE         ; AS ENTERED
         JMP    DISP
 NOMV:   CMP    #$41         ; [Q] ***Added to allow game exit***
         BEQ    DONE         ; quit the game, exit back to system.
+        pha
+        lda    PAINTFL
+        and    #~PAINT_BOARD
+        sta    PAINTFL
+        pla
         JMP    INPUT        ; process move
-DONE:   RTS
-;JMP     $FF00        ; *** MUST set this to YOUR OS starting address
+DONE:   ; restore original return address from before stacks initialization
+        SEI    ; mask (disable) interrupts
+        LDA    SAVSTK2
+        PHA
+        LDA    SAVSTK1
+        PHA
+        ; restore original detected devices flags
+        LDA    SAVDEVR
+        STA    DetectedDev
+        AND    #DEVPRESENT_RTC
+        BEQ    DONE01       ; no need to do anything if RTC is not present
+        ; RTC is present : re-enable periodic interrupts from RTC
+        lda     #$0b
+        jsr     RdRTC
+        ora     #DSC_REGB_PIE     ; enable periodic interrupt
+        tax
+        lda     #$0b
+        jsr     WrRTC
+DONE01:
+        CLI     ; enable interrupts
+        ; return to originally saved return address
+        RTS
 ;
 ;       THE ROUTINE JANUS DIRECTS THE
 ;       ANALYSIS BY DETERMINING WHAT
@@ -579,49 +658,49 @@ RETP:   LDA    #'.'        ; print ... instead of flashing disp
 ;       PLAY FROM OPENING OR THINK
 ;
 GO:     LDX    OMOVE            ; OPENING?
-        BMI    NOOPEN          ; -NO   *ADD CHANGE FROM BPL
+        BMI    NOOPEN           ; -NO   *ADD CHANGE FROM BPL
         LDA    DIS3             ; -YES WAS
-        CMP    OPNING,X        ; OPPONENT'S
-        BNE    END                ; MOVE OK?
+        CMP    OPNING,X         ; OPPONENT'S
+        BNE    END              ; MOVE OK?
         DEX
-        LDA    OPNING,X           ; GET NEXT
+        LDA    OPNING,X         ; GET NEXT
         STA    DIS1             ; CANNED
-        DEX            ; OPENING MOVE
+        DEX                     ; OPENING MOVE
         LDA    OPNING,X
         STA    DIS3             ; DISPLAY IT
         DEX
         STX    OMOVE            ; MOVE IT
-        BNE    MV2                ; (JMP)
+        BNE    MV2              ; (JMP)
 ;
-END:    LDA     #$FF        ; *ADD - STOP CANNED MOVES
+END:    LDA     #$FF            ; *ADD - STOP CANNED MOVES
         STA    OMOVE            ; FLAG OPENING
-NOOPEN: LDX    #$0C                ; FINISHED
+NOOPEN: LDX    #$0C             ; FINISHED
         STX    STATE            ; STATE=C
         STX    BESTV            ; CLEAR BESTV
-        LDX    #$14               ; GENERATE P
-        JSR    GNMX              ; MOVES
+        LDX    #$14             ; GENERATE P
+        JSR    GNMX             ; MOVES
 ;
-        LDX    #$04               ; STATE=4
+        LDX    #$04             ; STATE=4
         STX    STATE            ; GENERATE AND
-        JSR    GNMZ              ; TEST AVAILABLE
+        JSR    GNMZ             ; TEST AVAILABLE
 ;
 ;    MOVES
 ;
         LDX    BESTV            ; GET BEST MOVE
-        CPX    #$0F               ; IF NONE
-        BCC    MATE              ; OH OH!
+        CPX    #$0F             ; IF NONE
+        BCC    MATE             ; OH OH!
 ;
 MV2:    LDX    BESTP            ; MOVE
-        LDA    BOARD,X         ; THE
+        LDA    BOARD,X          ; THE
         STA    BESTV            ; BEST
         STX    PIECE            ; MOVE
         LDA    BESTM
         STA    SQUARE           ; AND DISPLAY
-        JSR    MOVE               ; IT
+        JSR    MOVE             ; IT
         JMP    CHESS
 ;
-MATE:   LDA    #$FF               ; RESIGN
-        RTS            ; OR STALEMATE
+MATE:   LDA    #$FF             ; RESIGN
+        RTS                     ; OR STALEMATE
 ;
 ;       SUBROUTINE TO ENTER THE
 ;       PLAYER'S MOVE
@@ -639,7 +718,7 @@ DROL:   ASL    DIS3    ; KEY
 ;       THE FOLLOWING SUBROUTINE ASSIGNS
 ;       A VALUE TO THE MOVE UNDER
 ;       CONSIDERATION AND RETURNS IT IN
-;    THE ACCUMULATOR
+;       THE ACCUMULATOR
 ;
 
 STRATGY:CLC
@@ -666,7 +745,7 @@ POS:    LSR
         ADC    WCC             ; WITH WEIGHT
         SEC                    ; OF 05
         SBC    BMAXC
-        LSR            ; **************
+        LSR                    ; **************
         CLC
         ADC    #$90
         ADC    WCAP0           ; PARAMETERS
@@ -701,9 +780,13 @@ NOPOSN: JMP    CKMATE          ; CONTINUE
 
 ;-----------------------------------------------------------------
 ; The following routines were added to allow text-based board
-; display over a standard RS-232 port.
+; display over a standard character I/O.
 ;
-POUT:   jsr    POUT9       ; print CRLF
+POUT:   lda    PAINTFL
+        and    #PAINT_BOARD
+        bne    POUT0
+        rts
+POUT0:  jsr    POUT9       ; print CRLF
         jsr    POUT13      ; print copyright
         JSR    POUT10      ; print column labels
         LDY    #$00        ; init board location
@@ -764,11 +847,11 @@ POUT42: JSR    syschout   ;
         jsr    syschout   ;
         BNE    POUT3      ; branch always
 
-POUT5:  TXA            ; print "-----...-----<crlf>"
+POUT5:  TXA               ; print "-----...-----<crlf>"
         PHA
         LDX    #$19
         LDA    #'-'
-POUT6:  JSR    syschout    ; PRINT ONE ASCII CHR - "-"
+POUT6:  JSR    syschout   ; PRINT ONE ASCII CHR - "-"
         DEX
         BNE    POUT6
         PLA
@@ -776,17 +859,17 @@ POUT6:  JSR    syschout    ; PRINT ONE ASCII CHR - "-"
         JSR    POUT9
         RTS
 
-POUT8:  jsr    POUT10        ;
+POUT8:  jsr    POUT10      ;
         LDA    BESTP
-        JSR    syshexout    ; PRINT 1 BYTE AS 2 HEX CHRS
+        JSR    syshexout   ; PRINT 1 BYTE AS 2 HEX CHRS
         LDA    #$20
         JSR    syschout    ; PRINT ONE ASCII CHR - SPACE
         LDA    BESTV
-        JSR    syshexout    ; PRINT 1 BYTE AS 2 HEX CHRS
+        JSR    syshexout   ; PRINT 1 BYTE AS 2 HEX CHRS
         LDA    #$20
         JSR    syschout    ; PRINT ONE ASCII CHR - SPACE
         LDA    DIS3
-        JSR    syshexout    ; PRINT 1 BYTE AS 2 HEX CHRS
+        JSR    syshexout   ; PRINT 1 BYTE AS 2 HEX CHRS
 
 POUT9:  LDA    #$0D
         JSR    syschout    ; PRINT ONE ASCII CHR - CR
@@ -809,72 +892,46 @@ POUT12: TYA
         rts
 
 ; print banner, preserver registers A, X, Y
-POUT13: stx    tmp_zpgPt
-		sta    tmp_zpgPt+1
-		sty    tmp_zpgPt+2
+POUT13: stx    SAVREG1
+		sta    SAVREG2
+		sty    SAVREG3
+        lda    PAINTFL
+        and    #PAINT_BANNER
+        beq    NOPRNBANN
 	    lda    #<banner
         sta    mos_StrPtr
 		lda    #>banner
 		sta    mos_StrPtr+1
 		jsr    mos_CallPuts
-		ldx    tmp_zpgPt
-		lda    tmp_zpgPt+1
-		ldy    tmp_zpgPt+2
+NOPRNBANN:
+        lda    PAINTFL
+        and    #~PAINT_BANNER
+        sta    PAINTFL
+		ldx    SAVREG1
+		lda    SAVREG2
+		ldy    SAVREG3
 		rts
-
-;        ldx    #$00        ; Print the copyright banner
-;POUT14: lda    banner,x
-;        beq    POUT15
-;        jsr    syschout
-;        inx
-;        bne    POUT14
-;POUT15: rts
 
 KIN:    LDA    #'?'
         JSR    syschout    ; PRINT ONE ASCII CHR - ?
         JSR    syskin      ; GET A KEYSTROKE FROM SYSTEM
+        JSR    syschout    ; echo the character
         AND    #$4F        ; MASK 0-7, AND ALPHA'S
         RTS
-;
-; 6551 I/O Support Routines
-;
-;
-;Init_6551      lda   #$1F               ; 19.2K/8/1
-;               sta   ACIActl            ; control reg
-;               lda   #$0B               ; N parity/echo off/rx int off/ dtr active low
-;               sta   ACIAcmd            ; command reg
-;               rts                      ; done
-;
-; input chr from ACIA1 (waiting)
-;
-syskin:
-		jsr mos_CallGetCh
-		rts
 
-               ;lda   ACIASta            ; Serial port status
-               ;and   #$08               ; is recvr full
-               ;beq   syskin             ; no char to get
-               ;Lda   ACIAdat            ; get chr
-               ;RTS                      ;
+syskin:
+        jsr mos_CallGetCh
+        rts
 ;
 ; output to OutPut Port
 ;
-syschout:		; MKHBCOS: must preserve X, Y and A
-		stx tmp_zpgPt
-		sta tmp_zpgPt+1
-		;sty tmp_zpgPt+2
-		jsr mos_CallPutCh
-		ldx tmp_zpgPt
-		lda tmp_zpgPt+1
-		;ldy tmp_zpgPt+2
-		rts
-;			   PHA                      ; save registers
-;ACIA_Out1      lda   ACIASta            ; serial port status
-;               and   #$10               ; is tx buffer empty
-;               beq   ACIA_Out1          ; no
-;               PLA                      ; get chr
-;               sta   ACIAdat            ; put character to Port
-;               RTS                      ; done
+syschout:		; MKHBCOS: must preserve X and A before calling PutCh
+        stx SAVREG1
+        sta SAVREG2
+        jsr mos_CallPutCh
+        ldx SAVREG1
+        lda SAVREG2
+        rts
 
 syshexout:     PHA                     ;  prints AA hex digits
                LSR                     ;  MOVE UPPER NIBBLE TO LOWER
@@ -884,11 +941,11 @@ syshexout:     PHA                     ;  prints AA hex digits
                JSR   PrintDig          ;
                PLA                     ;
 PrintDig:
-			   sty	 tmp_zpgPt+2
+			   sty	 SAVREG3
                AND   #$0F              ;
                TAY                     ;
                LDA   Hexdigdata,Y      ;
-               ldy   tmp_zpgPt+2       ;
+               ldy   SAVREG3           ;
                jmp   syschout          ;
 
 Hexdigdata:   .byte    "0123456789ABCDEF"
@@ -897,6 +954,49 @@ banner:       .byte    "MicroChess (c) 1996-2002 Peter Jennings, peterj@benlo.co
 cpl:          .byte    "WWWWWWWWWWWWWWWWBBBBBBBBBBBBBBBBWWWWWWWWWWWWWWWW"
 cph:          .byte    "KQCCBBRRPPPPPPPPKQCCBBRRPPPPPPPP"
               .byte    $00
+
+;-------------------------------------------------------------------------------
+; Write DS1685 address (Acc).
+;-------------------------------------------------------------------------------
+
+WrRTCAddr:
+	sta DSCALADDR
+	rts
+
+;-------------------------------------------------------------------------------
+; Write DS1685 data (Acc).
+;-------------------------------------------------------------------------------
+
+WrRTCData:
+	sta DSCALDATA
+	rts
+
+;-------------------------------------------------------------------------------
+; Read DS1685 data (-> Acc).
+;-------------------------------------------------------------------------------
+
+RdRTCData:
+	lda DSCALDATA
+	rts
+
+;-------------------------------------------------------------------------------
+; Write DS1685 Acc = Addr, X = Data
+;-------------------------------------------------------------------------------
+
+WrRTC:
+	jsr WrRTCAddr
+	txa
+	jsr WrRTCData
+	rts
+
+;-------------------------------------------------------------------------------
+; Read DS1685 Acc = Addr -> A = Data
+;-------------------------------------------------------------------------------
+
+RdRTC:
+	jsr WrRTCAddr
+	jsr RdRTCData
+	rts
 ;
 ; end of added code
 ;
@@ -920,7 +1020,7 @@ POINTS:     .byte     $0B, $0A, $06, $06, $04, $04, $04, $04
 OPNING:     .byte     $99, $25, $0B, $25, $01, $00, $33, $25
             .byte     $07, $36, $34, $0D, $34, $34, $0E, $52
             .byte     $25, $0D, $45, $35, $04, $55, $22, $06
-            .byte     $43, $33, $0F, $CC
+            .byte     $43, $33, $0F, $CC, $00, $00, $00, $00
 
 ;
 ;
