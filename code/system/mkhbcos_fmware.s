@@ -122,7 +122,7 @@ FuncCodeArgs    =   __LIBARG_START__+5   ; actual args list starts here
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 9
-VerMnt      = 0
+VerMnt      = 1
 
 ; 6502 CPU
 
@@ -535,8 +535,11 @@ IrqChkUART:
 CheckXmt:
     lda #UART_TDRE
     bit UartStRam           ; Check transmitter empty flag
-    beq CheckError          ; Branch to next check if flag not set
+    beq Check6850Error      ; Branch to next check if flag not set
     jsr UartTransmit        ; Handle transmitter
+Check6850Error:
+        ; todo--check 6850 errors and/or other conditions
+
 IrqChkNxt01:
 
 ; here goes the code checking status bits from other possible
@@ -547,13 +550,11 @@ IrqChkNxt01:
 ;   sta <irq-source-status-ram-storage> ; optional
 ;   and #<irq-source-irq-bit-flag>
 ;   beq IrqChkNxt02         ; bit not set, check next
-;   jmp <irq-source-service-routine-addr>   ; bit set, jump to service
+;   [...]                   ; bit set, begin service for current IRQ source
 ;
 ;IrqChkNxt02:
 ;
 ;   [... and so on ...]
-CheckError:
-    ; todo--check 6850 errors and/or other conditions
 
 ; Note: because the /IRQ line is pulled high by a 3.3k resistor, it may not make
 ; it high within the same cycle that the /IRQ source was serviced. It might even
@@ -1642,27 +1643,27 @@ PutsDone:
     sta StrPtr+1            ; Restore StrPtr
     rts
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; Put a character to output (character in A)
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 
 PutCh:
 	jmp (PutChVect)
 
 RomPutCh:
-    ; Check for Transmit queue full; in-ptr will be one less than out-ptr. (this
-    ; wastes one byte in the queue, but otherwise a totally empty and a totally
-    ; full queue would both have equal pointers.)
+; Check for Transmit queue full; in-ptr will be one less than out-ptr. (this
+; wastes one byte in the queue, but otherwise a totally empty and a totally
+; full queue would both have equal pointers.)
     ldx UartTxInPt
-    inx                     ; Increment to check for "one less" condition
+    inx                    ; Increment to check for "one less" condition
 PutChWait:
     cpx UartTxOutPt
-    beq PutChWait            ; Spin until ISR transmits and updates UartTxOutPtr
+    beq PutChWait          ; Spin until ISR transmits and updates UartTxOutPtr
 
     ; Put the char into the transmit queue
-    dex                     ; Decrement in-ptr back to where it was
-    sta UartTxQue,x         ; Store char in the queue
-    inx                     ; Now increment in-ptr for real
+    dex                    ; Decrement in-ptr back to where it was
+    sta UartTxQue,x        ; Store char in the queue
+    inx                    ; Now increment in-ptr for real
     stx UartTxInPt
 
     ; Enable IRQ--may interrupt immediately if transmitter isn't busy
@@ -2399,11 +2400,39 @@ DS1685ReadRam:
     lda Temp
     rts
 
+;-----------------------------------------------------------------------------
+; Disable periodic interrupts from RTC.
+;-----------------------------------------------------------------------------
+RTCDisablePIE:
+    sei
+    lda     #$0b
+    jsr     RdRTC
+    and     #~DSC_REGB_PIE     ; disable periodic interrupt
+    tax
+    lda     #$0b
+    jsr     WrRTC
+    cli
+    rts
+
+;-----------------------------------------------------------------------------
+; Enable periodic interrupts from RTC.
+;-----------------------------------------------------------------------------
+RTCEnablePIE:
+    sei
+    lda     #$0b
+    jsr     RdRTC
+    ora     #DSC_REGB_PIE     ; enable periodic interrupt
+    tax
+    lda     #$0b
+    jsr     WrRTC
+    cli
+    rts
+
 ; helper procedures
 
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 ; Write DS1685 address (Acc).
-;-------------------------------------------------------------------------------
+;-----------------------------------------------------------------------------
 
 WrRTCAddr:
 	sta DSCALADDR
@@ -2497,6 +2526,12 @@ BankedRamSel:
 ; Kernel jump table.
 ;-----------------------------------------------------------------------------
 .segment "KERN"
+
+CallRTCEnablePIE:   ; $FFB7
+    jmp RTCEnablePIE
+
+CallRTCDisablePIE:  ; $FFBA
+    jmp RTCDisablePIE
 
 CallSetDt:      ; $FFBD
     jmp MOSSetDtTm

@@ -138,5 +138,7 @@ DEVNOEXTRAM         =   DEVPRESENT_NOEXTRAM & DEVPRESENT_NOBRAM
 .define     mos_RamBank         $FFC3
 .define     mos_PrnDtTm         $FFC0
 .define     mos_SetDtTm         $FFBD
+.define     mos_RTCEnablePIE    $FFB7
+.define     mos_RTCDisablePIE   $FFBA
 
 .endif

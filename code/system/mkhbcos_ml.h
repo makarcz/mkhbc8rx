@@ -77,14 +77,20 @@
 #define MOS_DS1685SETTM   0xFFDB
 #define MOS_DS1685WRRAM   0xFFDE
 #define MOS_DS1685RDRAM   0xFFE1
-#define MOS_PROCRMEM	  0xFFE4
-#define MOS_PROCWMEM	  0xFFE7
-#define MOS_PROCEXEC	  0xFFEA
+#define MOS_PROCRMEM      0xFFE4
+#define MOS_PROCWMEM      0xFFE7
+#define MOS_PROCEXEC      0xFFEA
+#define MOS_GETC          0xFFED
+#define MOS_PUTC          0xFFF0
+#define MOS_GETS          0xFFF3
+#define MOS_PUTS          0xFFF6
 #define MOS_MEMINIT       0xFFC9
 #define MOS_MEMCPY        0xFFC6
 #define MOS_BRAMSEL       0xFFC3
 #define MOS_PRNDT         0xFFC0
 #define MOS_SETDT         0xFFBD
+#define MOS_RTCENPIE      0xFFB7
+#define MOS_RTCDISPIE     0xFFBA
 
 /*
  * The addresses below (if any) need to be moved to Kernel Jump Table.

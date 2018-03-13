@@ -98,7 +98,6 @@ PAINT_BANNER    = %01000000
 .segment "CODE"
 
         ; save current return address
-        SEI
         PLA
         STA    SAVSTK1
         PLA
@@ -114,12 +113,8 @@ PAINT_BANNER    = %01000000
         BEQ     ST01    ; no need to do anything if RTC is not present
         ; RTC is present : disable periodic interrupts from it
         ; (A temporary hack to work around a bug in MKHBCOS's ISR)
-        lda     #$0b
-        jsr     RdRTC
-        and     #~DSC_REGB_PIE     ; disable periodic interrupt
-        tax
-        lda     #$0b
-        jsr     WrRTC
+        jsr     mos_RTCDisablePIE
+        SEI
 ST00:   ; make MKHBCOS think that RTC is not present
         LDA     SAVDEVR
         AND     #DEVPRESENT_NORTC
@@ -223,12 +218,7 @@ DONE:   ; restore original return address from before stacks initialization
         AND    #DEVPRESENT_RTC
         BEQ    DONE01       ; no need to do anything if RTC is not present
         ; RTC is present : re-enable periodic interrupts from RTC
-        lda     #$0b
-        jsr     RdRTC
-        ora     #DSC_REGB_PIE     ; enable periodic interrupt
-        tax
-        lda     #$0b
-        jsr     WrRTC
+        jsr     mos_RTCEnablePIE
 DONE01:
         CLI     ; enable interrupts
         ; return to originally saved return address
@@ -954,49 +944,6 @@ banner:       .byte    "MicroChess (c) 1996-2002 Peter Jennings, peterj@benlo.co
 cpl:          .byte    "WWWWWWWWWWWWWWWWBBBBBBBBBBBBBBBBWWWWWWWWWWWWWWWW"
 cph:          .byte    "KQCCBBRRPPPPPPPPKQCCBBRRPPPPPPPP"
               .byte    $00
-
-;-------------------------------------------------------------------------------
-; Write DS1685 address (Acc).
-;-------------------------------------------------------------------------------
-
-WrRTCAddr:
-	sta DSCALADDR
-	rts
-
-;-------------------------------------------------------------------------------
-; Write DS1685 data (Acc).
-;-------------------------------------------------------------------------------
-
-WrRTCData:
-	sta DSCALDATA
-	rts
-
-;-------------------------------------------------------------------------------
-; Read DS1685 data (-> Acc).
-;-------------------------------------------------------------------------------
-
-RdRTCData:
-	lda DSCALDATA
-	rts
-
-;-------------------------------------------------------------------------------
-; Write DS1685 Acc = Addr, X = Data
-;-------------------------------------------------------------------------------
-
-WrRTC:
-	jsr WrRTCAddr
-	txa
-	jsr WrRTCData
-	rts
-
-;-------------------------------------------------------------------------------
-; Read DS1685 Acc = Addr -> A = Data
-;-------------------------------------------------------------------------------
-
-RdRTC:
-	jsr WrRTCAddr
-	jsr RdRTCData
-	rts
 ;
 ; end of added code
 ;
