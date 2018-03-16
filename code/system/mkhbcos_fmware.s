@@ -45,6 +45,9 @@
 ; 3/11/2018
 ;   Optimized IRQ service routine.
 ;
+; 3/14/2018
+;   Removed some unneeded NOP-s.
+;
 ; ---------------------------------------------------------------------------
 
 .export   _init, _exit
@@ -122,7 +125,7 @@ FuncCodeArgs    =   __LIBARG_START__+5   ; actual args list starts here
 ; MKHBC-8-R1 OS Version number
 VerMaj      = 1
 VerMin      = 9
-VerMnt      = 1
+VerMnt      = 2
 
 ; 6502 CPU
 
@@ -1617,9 +1620,6 @@ MOSMemInit2:
 
 Puts:
 	;jmp (PutsVect)
-    nop
-    nop
-    nop
 
 RomPuts:
 
@@ -1685,9 +1685,6 @@ PutChEn:
 GetLine:
 
 	;jmp (GetsVect)
-    nop
-    nop
-    nop
 
 RomGets:
 

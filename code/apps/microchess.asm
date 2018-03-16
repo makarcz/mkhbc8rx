@@ -19,6 +19,24 @@
 ;   Change in implementation of banner and board paint flags.
 ;   Include header for mkhbcos.
 ;
+; 3/15/2018
+;   Attempt at fixing bug #1:
+;   Experimental code. Instead of disabling RTC periodic interrupt, I mask
+;   the interrupt for the time when algorithm swaps stacks.
+;   I also relocated some ZP addresses. If this doesn't help with board
+;   corruption issue after computer move, I will go back to previous version
+;   which disables periodic interrupts from RTC.
+;
+; 3/16/2018
+;   Masking IRQ and relocating some ZP addresses alone didn't seem to work.
+;   In the last desperate attempt to make microchess working, I moved the 2-nd
+;   stack pointer 16 bytes away from the 1-st stack. This in addition to
+;   masking interrupts while program is swapping stacks seems to have done the
+;   trick. Not only I played 2 long games without board corruption. Microchess
+;   gave me good run for my money too. I won 1-st game and lost 2-nd one.
+;   I will test this code some more, to be sure, but I am checking it in to
+;   source code repository as a good candidate for stable version.
+;
 ;-----------------------------------------------------------------------------
 ; BUGS
 ;
@@ -32,6 +50,7 @@
 ;   this problem doesn't occur. So I disable periodic interrupts from RTC
 ;   and re-enable them at exit. Not an elegant solution and one day I may need
 ;   to fix whatever the root cause of this conflict is.
+;   STATUS: Possibly fixed, needs more testing.
 ;
 ;-----------------------------------------------------------------------------
 ;
@@ -56,19 +75,19 @@ WCAP0   =	$2D
 COUNT   =	$2E
 BCAP2   =	$2E
 WCAP2   =	$2F
-BCAP1   =	$20
-WCAP1   =	$21
-BCAP0   =	$22
-MOB     =	$23
-MAXC    =	$24
-CC      =	$25
-PCAP    =	$26
-BMOB    =	$23
-BMAXC   =	$24
-BMCC    =	$25 		; was BCC (TASS doesn't like it as a label)
-BMAXP   =	$26
-XMAXC   =	$28
-WMOB    =	$2B
+BCAP1   =	$30
+WCAP1   =	$31
+BCAP0   =	$32
+MOB     =	$33
+MAXC    =	$34
+CC      =	$35
+PCAP    =	$36
+BMOB    =	$33
+BMAXC   =	$34
+BMCC    =	$35 		; was BCC (TASS doesn't like it as a label)
+BMAXP   =	$36
+XMAXC   =	$38
+WMOB    =	$3B
 WMAXC   =	$3C
 WCC     =	$3D
 WMAXP   =	$3E
@@ -98,28 +117,30 @@ PAINT_BANNER    = %01000000
 .segment "CODE"
 
         ; save current return address
+        SEI
         PLA
         STA    SAVSTK1
         PLA
         STA    SAVSTK2
+        CLI
         ; initialize delay (count down from $FFFF)
         LDA     #$ff
         STA     SAVREG1
         STA     SAVREG2
         ; disable RTC service in ISR
-        LDA     DetectedDev
-        STA     SAVDEVR
-        AND     #DEVPRESENT_RTC
-        BEQ     ST01    ; no need to do anything if RTC is not present
+;        LDA     DetectedDev
+;        STA     SAVDEVR
+;        AND     #DEVPRESENT_RTC
+;        BEQ     ST01    ; no need to do anything if RTC is not present
         ; RTC is present : disable periodic interrupts from it
         ; (A temporary hack to work around a bug in MKHBCOS's ISR)
-        jsr     mos_RTCDisablePIE
-        SEI
-ST00:   ; make MKHBCOS think that RTC is not present
-        LDA     SAVDEVR
-        AND     #DEVPRESENT_NORTC
-        STA     DetectedDev
-        CLI
+;        jsr     mos_RTCDisablePIE
+;        SEI
+;ST00:   ; make MKHBCOS think that RTC is not present
+;        LDA     SAVDEVR
+;        AND     #DEVPRESENT_NORTC
+;        STA     DetectedDev
+;        CLI
 ST01:   ; count down from $FFFF to $0000
         ; this delay is needed when working with PropTermMK as terminal device
         DEC     SAVREG1
@@ -140,11 +161,14 @@ INITFLAGS:
         STA     REV
         ;JSR     Init_6551
 CHESS:  CLD
+        SEI
         ; initialize 2 stacks
         LDX    #$FF
         TXS
-        LDX    #$C8
-        STX    SP2
+        ;LDX    #$C8
+        LDX    #$B8     ; moved the 2-nd stack a bit further apart from
+        STX    SP2      ; the 1-st one
+        CLI
 ;
 ;       I/O routines
 ;
@@ -213,13 +237,13 @@ DONE:   ; restore original return address from before stacks initialization
         LDA    SAVSTK1
         PHA
         ; restore original detected devices flags
-        LDA    SAVDEVR
-        STA    DetectedDev
-        AND    #DEVPRESENT_RTC
-        BEQ    DONE01       ; no need to do anything if RTC is not present
+;        LDA    SAVDEVR
+;        STA    DetectedDev
+;        AND    #DEVPRESENT_RTC
+;        BEQ    DONE01       ; no need to do anything if RTC is not present
         ; RTC is present : re-enable periodic interrupts from RTC
-        jsr     mos_RTCEnablePIE
-DONE01:
+;        jsr     mos_RTCEnablePIE
+;DONE01:
         CLI     ; enable interrupts
         ; return to originally saved return address
         RTS
@@ -278,20 +302,20 @@ XRT:    RTS
 ;      AND ANALYSIS
 ;
 ON4:    LDA    XMAXC            ; SAVE ACTUAL
-        STA    WCAP0             ; CAPTURE
-        LDA    #$00               ; STATE=0
+        STA    WCAP0            ; CAPTURE
+        LDA    #$00             ; STATE=0
         STA    STATE
-        JSR    MOVE              ; GENERATE
-        JSR    REVERSE           ; IMMEDIATE
+        JSR    MOVE             ; GENERATE
+        JSR    REVERSE          ; IMMEDIATE
         JSR    GNMZ             ; REPLY MOVES
         JSR    REVERSE
 ;
-        LDA    #$08           ; STATE=8
+        LDA    #$08             ; STATE=8
         STA    STATE            ; GENERATE
-;        JSR    OHM              ; CONTINUATION
-        JSR    UMOVE             ; MOVES
+;        JSR    OHM             ; CONTINUATION
+        JSR    UMOVE            ; MOVES
 ;
-        JMP    STRATGY           ; FINAL EVALUATION
+        JMP    STRATGY          ; FINAL EVALUATION
 NOCOUNT:CPX    #$F9
         BNE    TREE
 ;
@@ -300,8 +324,8 @@ NOCOUNT:CPX    #$F9
 ;
         LDA    BK               ; IS KING
         CMP    SQUARE           ; IN CHECK?
-        BNE    RETJ              ; SET INCHEK=0
-        LDA    #$00               ; IF IT IS
+        BNE    RETJ             ; SET INCHEK=0
+        LDA    #$00             ; IF IT IS
         STA    INCHEK
 RETJ:   RTS
 ;
@@ -317,30 +341,30 @@ LOOPX:  CMP    BK,Y
         DEY
         BEQ    RETJ              ; (KING)
         BPL    LOOPX             ; SAVE
-FOUNX:  LDA    POINTS,Y           ; BEST CAP
-        CMP    BCAP0,X            ; AT THIS
+FOUNX:  LDA    POINTS,Y          ; BEST CAP
+        CMP    BCAP0,X           ; AT THIS
         BCC    NOMAX             ; LEVEL
         STA    BCAP0,X
 NOMAX:  DEC    STATE
-        LDA    #$FB               ; IF STATE=FB
-        CMP    STATE            ; TIME TO TURN
+        LDA    #$FB              ; IF STATE=FB
+        CMP    STATE             ; TIME TO TURN
         BEQ    UPTREE            ; AROUND
         JSR    GENRM             ; GENERATE FURTHER
-UPTREE: INC    STATE            ; CAPTURES
+UPTREE: INC    STATE             ; CAPTURES
         RTS
 ;
 ;      THE PLAYER'S MOVE IS INPUT
 ;
-INPUT:  CMP    #$08               ; NOT A LEGAL
-        BCS    ERROR          ; SQUARE #
+INPUT:  CMP    #$08              ; NOT A LEGAL
+        BCS    ERROR             ; SQUARE #
         JSR    DISMV
 DISP:   LDX    #$1F
 SEARCH: LDA    BOARD,X
         CMP    DIS2
         BEQ    HERE              ; DISPLAY
-        DEX            ; PIECE AT
+        DEX                      ; PIECE AT
         BPL    SEARCH            ; FROM
-HERE:   STX    DIS1             ; SQUARE
+HERE:   STX    DIS1              ; SQUARE
         STX    PIECE
 ERROR:  JMP    CHESS
 ;
@@ -457,7 +481,7 @@ ETC:    SEC
         LDA    #$77               ; POSITION
         SBC    BOARD,X            ; FROM 77
         STA    BK,X
-        STY    BOARD,X         ; AND
+        STY    BOARD,X            ; AND
         SEC
         LDA    #$77               ; EXCHANGE
         SBC    BOARD,X            ; PIECES
@@ -466,43 +490,43 @@ ETC:    SEC
         BPL    ETC
         RTS
 ;
-;        CMOVE CALCULATES THE TO SQUARE
-;        USING SQUARE AND THE MOVE
+;       CMOVE CALCULATES THE TO SQUARE
+;       USING SQUARE AND THE MOVE
 ;       TABLE  FLAGS SET AS FOLLOWS:
 ;       N#NAME?    MOVE
 ;       V#NAME?    (LEGAL UNLESS IN CR)
 ;       C#NAME?    BECAUSE OF CHECK
 ;       [MY &THANKS TO JIM BUTTERFIELD
 ;        WHO WROTE THIS MORE EFFICIENT
-;        VERSION OF CMOVE)
+;        VERSION OF CMOVE]
 ;
-CMOVE:  LDA    SQUARE           ; GET SQUARE
+CMOVE:  LDA    SQUARE          ; GET SQUARE
         LDX    MOVEN           ; MOVE POINTER
         CLC
-        ADC    MOVEX,X            ; MOVE LIST
-        STA    SQUARE           ; NEW POS'N
+        ADC    MOVEX,X         ; MOVE LIST
+        STA    SQUARE          ; NEW POS'N
         AND    #$88
-        BNE    ILLEGAL           ; OFF BOARD
+        BNE    ILLEGAL         ; OFF BOARD
         LDA    SQUARE
 ;
         LDX    #$20
-LOOP:   DEX            ; IS TO
-        BMI    NO                ; SQUARE
-        CMP    BOARD,X            ; OCCUPIED?
+LOOP:   DEX                    ; IS TO
+        BMI    NO              ; SQUARE
+        CMP    BOARD,X         ; OCCUPIED?
         BNE    LOOP
 ;
         CPX    #$10            ; BY SELF?
         BMI    ILLEGAL
 ;
-        LDA    #$7F        ; MUST BE CAP!
+        LDA    #$7F            ; MUST BE CAP!
         ADC    #$01            ; SET V FLAG
         BVS    SPX             ; (JMP)
 ;
-NO:     CLV            ; NO CAPTURE
+NO:     CLV                    ; NO CAPTURE
 ;
-SPX:    LDA    STATE             ; SHOULD WE
-        BMI    RETL               ; DO THE
-        CMP    #$08             ; CHECK CHECK?
+SPX:    LDA    STATE           ; SHOULD WE
+        BMI    RETL            ; DO THE
+        CMP    #$08            ; CHECK CHECK?
         BPL    RETL
 ;
 ;        CHKCHK REVERSES SIDES
@@ -513,7 +537,7 @@ SPX:    LDA    STATE             ; SHOULD WE
 ;       TIME CONSUMING, IT IS NOT
 ;       ALWAYS DONE
 ;
-CHKCHK: PHA                ; STATE  #392
+CHKCHK: PHA                      ; STATE  #392
         PHP
         LDA    #$F9
         STA    STATE             ; GENERATE
@@ -526,45 +550,46 @@ CHKCHK: PHA                ; STATE  #392
         PLA
         STA    STATE
         LDA    INCHEK
-        BMI    RETL               ; NO - SAFE
-        SEC            ; YES - IN CHK
+        BMI    RETL              ; NO - SAFE
+        SEC                      ; YES - IN CHK
         LDA    #$FF
         RTS
 ;
-RETL:   CLC            ; LEGAL
-        LDA    #$00            ; RETURN
+RETL:   CLC                      ; LEGAL
+        LDA    #$00              ; RETURN
         RTS
 ;
 ILLEGAL:LDA    #$FF
-        CLC            ; ILLEGAL
-        CLV            ; RETURN
+        CLC                      ; ILLEGAL
+        CLV                      ; RETURN
         RTS
 ;
 ;       REPLACE PIECE ON CORRECT SQUARE
 ;
 RESET:  LDX    PIECE          ; GET LOGAT
-        LDA    BOARD,X            ; FOR PIECE
-        STA    SQUARE           ; FROM BOARD
+        LDA    BOARD,X        ; FOR PIECE
+        STA    SQUARE         ; FROM BOARD
         RTS
 ;
 ;
 ;
-GENRM:  JSR    MOVE              ; MAKE MOVE
-GENR2:  JSR    REVERSE          ; REVERSE BOARD
-        JSR    GNM              ; GENERATE MOVES
-RUM:    JSR    REVERSE       ; REVERSE BACK
+GENRM:  JSR    MOVE           ; MAKE MOVE
+GENR2:  JSR    REVERSE        ; REVERSE BOARD
+        JSR    GNM            ; GENERATE MOVES
+RUM:    JSR    REVERSE        ; REVERSE BACK
 ;
 ;       ROUTINE TO UNMAKE A MOVE MADE BY
 ;      MOVE
 ;
-UMOVE:  TSX            ; UNMAKE MOVE
+UMOVE:  SEI            ; while program is swapping stacks mask IRQ
+        TSX            ; UNMAKE MOVE
         STX    SP1
-        LDX    SP2               ; EXCHANGE
+        LDX    SP2     ; EXCHANGE
         TXS            ; STACKS
         PLA            ; MOVEN
         STA    MOVEN
         PLA            ; CAPTURED
-        STA    PIECE            ; PIECE
+        STA    PIECE   ; PIECE
         TAX
         PLA            ; FROM SQUARE
         STA    BOARD,X
@@ -580,16 +605,17 @@ UMOVE:  TSX            ; UNMAKE MOVE
 ;       ARE SAVED IN A STACK TO UNMAKE
 ;       THE MOVE LATER
 ;
-MOVE:   TSX
-        STX    SP1              ; SWITCH
-        LDX    SP2              ; STACKS
+MOVE:   SEI            ; mask IRQ while swapping stacks to avoid corruption
+        TSX
+        STX    SP1     ; SWITCH
+        LDX    SP2     ; STACKS
         TXS
         LDA    SQUARE
         PHA            ; TO SQUARE
         TAY
         LDX    #$1F
-CHECK:  CMP    BOARD,X            ; CHECK FOR
-        BEQ    TAKE              ; CAPTURE
+CHECK:  CMP    BOARD,X ; CHECK FOR
+        BEQ    TAKE    ; CAPTURE
         DEX
         BPL    CHECK
 TAKE:   LDA    #$CC
@@ -598,43 +624,44 @@ TAKE:   LDA    #$CC
         PHA            ; PIECE
         LDX    PIECE
         LDA    BOARD,X
-        STY    BOARD,X            ; FROM
+        STY    BOARD,X ; FROM
         PHA            ; SQUARE
         TXA
         PHA            ; PIECE
         LDA    MOVEN
         PHA            ; MOVEN
 STRV:   TSX
-        STX    SP2               ; SWITCH
-        LDX    SP1               ; STACKS
+        STX    SP2     ; SWITCH
+        LDX    SP1     ; STACKS
         TXS            ; BACK
+        CLI            ; unmask interrupts now that 1-st stack is restored
         RTS
 ;
 ;       CONTINUATION OF SUB STRATGY
 ;       -CHECKS FOR CHECK OR CHECKMATE
 ;       AND ASSIGNS VALUE TO MOVE
 ;
-CKMATE: LDY    BMAXC                 ; CAN BLK CAP
+CKMATE: LDY    BMAXC            ; CAN BLK CAP
         CPX    POINTS           ; MY KING?
         BNE    NOCHEK
-        LDA    #$00               ; GULP!
-        BEQ    RETV              ; DUMB MOVE!
+        LDA    #$00             ; GULP!
+        BEQ    RETV             ; DUMB MOVE!
 ;
-NOCHEK: LDX    BMOB                 ; IS BLACK
-        BNE    RETV              ; UNABLE TO
+NOCHEK: LDX    BMOB             ; IS BLACK
+        BNE    RETV             ; UNABLE TO
         LDX    WMAXP            ; MOVE AND
-        BNE    RETV              ; KING IN CH?
-        LDA    #$FF               ; YES! MATE
+        BNE    RETV             ; KING IN CH?
+        LDA    #$FF             ; YES! MATE
 ;
-RETV:   LDX    #$04            ; RESTORE
+RETV:   LDX    #$04             ; RESTORE
         STX    STATE            ; STATE=4
 ;
 ;       THE VALUE OF THE MOVE (IN ACCU)
 ;       IS COMPARED TO THE BEST MOVE AND
 ;       REPLACES IT IF IT IS BETTER
 ;
-PUSH:   CMP    BESTV             ; IS THIS BEST
-        BCC    RETP              ; MOVE SO FAR?
+PUSH:   CMP    BESTV            ; IS THIS BEST
+        BCC    RETP             ; MOVE SO FAR?
         BEQ    RETP
         STA    BESTV            ; YES!
         LDA    PIECE            ; SAVE IT
@@ -662,7 +689,7 @@ GO:     LDX    OMOVE            ; OPENING?
         STX    OMOVE            ; MOVE IT
         BNE    MV2              ; (JMP)
 ;
-END:    LDA     #$FF            ; *ADD - STOP CANNED MOVES
+END:    LDA    #$FF             ; *ADD - STOP CANNED MOVES
         STA    OMOVE            ; FLAG OPENING
 NOOPEN: LDX    #$0C             ; FINISHED
         STX    STATE            ; STATE=C
@@ -881,7 +908,7 @@ POUT12: TYA
         JSR    syshexout
         rts
 
-; print banner, preserver registers A, X, Y
+; print banner, preserve registers A, X, Y
 POUT13: stx    SAVREG1
 		sta    SAVREG2
 		sty    SAVREG3
@@ -931,7 +958,7 @@ syshexout:     PHA                     ;  prints AA hex digits
                JSR   PrintDig          ;
                PLA                     ;
 PrintDig:
-			   sty	 SAVREG3
+               STY   SAVREG3
                AND   #$0F              ;
                TAY                     ;
                LDA   Hexdigdata,Y      ;
