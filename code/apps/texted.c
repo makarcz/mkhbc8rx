@@ -20,6 +20,9 @@
  *
  * 3/28/2018
  *  Added functions 'b' (bank), 'e' (erase) and 'm' (memory information).
+ *  Added text selection, listing the selection, line numbers switch for
+ *  listing all content or selection.
+ *  WARNING: Untested code.
  *
  *  ..........................................................................
  *  TO DO:
@@ -27,6 +30,27 @@
  *     This string if present will indicate that the buffer was initialized
  *     by this application and it is safe to perform any scans of the memory.
  *     STATUS: NOT STARTED.
+ *  2) Add ability to list selected text, probably as a switch to 'l' command.
+ *     E.g.: l sel
+ *     Listing selection should probably display line numbers as well.
+ *     Better yet, add switch 'n' to both variants of list commands:
+ *        l all [n]
+ *          AND
+ *        l sel [n]
+ *     and let the user decide if the line numbers to be seen in output.
+ *     NOTE: I need to figure out the scenario when selection is made, then
+ *           selected text is copied to another place in text. What should
+ *           happen to existing selection? Should it be reset? (the easy
+ *           solution) OR should the selection boundaries be adjusted, since
+ *           the line numbers of selected text may change after copy / paste,
+ *           but selection itself should remain active? Selection should be
+ *           definitely reset after selected text is deleted.
+ *      STATUS: DONE, Testing pending.
+ *  3) Implement remaining functions from original requirements (insert, date
+ *     and time, select text, delete selection, copy selection).
+ *     STATUS: IN PROGRESS.
+ *     DETAILS:
+ *      Text selection added. Needs testing.
  *  ..........................................................................
  *  BUGS:
  *
@@ -85,7 +109,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 0;
-const int ver_build = 6;
+const int ver_build = 7;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -104,15 +128,16 @@ const char *ga_errmsg[8] =
     "Unknown."
 };
 
-const char *helptext[34] =
+const char *helptext[36] =
 {
     "\n\r",
     " b : select / show current file # (bank #).\n\r",
     "     b [00..07]\n\r",
     " l : List text buffer contents.\n\r",
-    "     l all | [from-line#][-to-line#] [n]\n\r",
+    "     l all [n] | sel [n] | [from_line#-to_line#] [n]\n\r",
     "       n - show line numbers\n\r",
     "       all - list all content\n\r",
+    "       sel - list only selected content\n\r",
     " a : add text at the end of buffer.\n\r",
     "     NOTE: type '@EOT' to end.\n\r",
     " i : insert text.\n\r",
@@ -120,9 +145,9 @@ const char *helptext[34] =
     " g : go to.\n\r",
     "     g <line#>\n\r",
     " d : delete text.\n\r",
-    "     d [from-line#][-to-line#]\n\r",
+    "     d [from_line#-to_line#]\n\r",
     " s : select text.\n\r",
-    "     s [from-line#][-to-line#]\n\r",
+    "     s [from_line#-to_line#]\n\r",
     " c : delete (cut) selection\n\r",
     " p : copy selected text.\n\r",
     "     p [line#]\n\r",
@@ -135,8 +160,9 @@ const char *helptext[34] =
     "     Next free address (hex) in buffer.\n\r",
     "     Free memory in current buffer.\n\r",
     "NOTE:\n\r",
-    "   Default line# is current line.\n\r",
+    "   Default line#, from_line#, to_line# is the current line.\n\r",
     "   Arguments are <mandatory> OR [optional].\n\r",
+    "   When range is provided, SPACE can be used instead of '-'.\n\r",
     "\n\r",
     "@EOH"
 };
@@ -175,6 +201,7 @@ int     texted_isnull(const char *hdr);
 void    texted_initbuf(void);
 void    texted_membank(void);
 void    texted_info(void);
+void    texted_select(void);
 
 /*
  * Return non-zero if the text record header pointed by hdr is a null header.
@@ -342,6 +369,13 @@ void texted_help(void)
             puts("   ");  // 3 spaces
             puts(helptext[i++]);
         }
+        if (0 == (i%20)) {
+            puts("\n\r");
+            puts("Press any key to continue...");
+            while(!kbhit());    // wait for key press...
+            getc();            // consume key
+            puts("\n\r");
+        }
     }
 }
 
@@ -398,6 +432,9 @@ int texted_exec(void)
         case CMD_INFO:
             texted_info();
             break;
+        case CMD_SELECT:
+            texted_select();
+            break;
         default:
             break;
     }
@@ -452,6 +489,9 @@ void texted_add(void)
     }
 }
 
+/*
+ * List text buffer contents.
+ */
 void texted_list(void)
 {
     uint16_t from_line = line_num;
@@ -468,7 +508,18 @@ void texted_list(void)
     if (strlen(prompt_buf) > 1) {
         n0 = adv2nxttoken(2);
         n = adv2nextspc(n0);
-        if (strncmp(prompt_buf + n0, "all", 3)) {
+        if (0 == strncmp(prompt_buf + n0, "sel", 3)) {
+#ifdef DEBUG
+            puts("DBG(texted_list): List selected content.\n\r");
+#endif
+            n = adv2nxttoken(n);
+            n0 = adv2nextspc(n);
+            show_num = (prompt_buf[n] == 'n');
+            from_line = sel_begin;
+            to_line = sel_end;
+
+        } else if (strncmp(prompt_buf + n0, "all", 3)) {
+            // range specified in command line
             show_num = (prompt_buf[n0] == 'n');
             if (!show_num) {
                 from_line = atoi (prompt_buf + n0);
@@ -489,10 +540,13 @@ void texted_list(void)
                     }
                 }
             }
-        } else {
+        } else {    // list all content
 #ifdef DEBUG
             puts("DBG(texted_list): List all content.\n\r");
 #endif
+            n = adv2nxttoken(n);
+            n0 = adv2nextspc(n);
+            show_num = (prompt_buf[n] == 'n');
             from_line = 0;
             while (1) {
                 if (texted_isnull((const char *)addr)) {
@@ -568,6 +622,9 @@ void texted_list(void)
     puts("@EOT\n\r");
 }
 
+/*
+ * Move the current line marker to the line specified in command arg.
+ */
 void texted_goto(void)
 {
     int n;
@@ -619,6 +676,9 @@ void texted_goto(void)
     }
 }
 
+/*
+ * Delete current line or specified range of lines.
+ */
 void texted_delete()
 {
     uint16_t addr = START_BRAM;
@@ -763,6 +823,59 @@ void texted_delete()
         }
         addr = nxtaddr;             // do the next line
     }
+}
+
+/*
+ * Select text in buffer.
+ */
+void texted_select(void)
+{
+    uint16_t addr = START_BRAM;
+    unsigned int from_line = line_num;
+    unsigned int to_line = line_num;
+    uint16_t nxtaddr;
+    unsigned int last_line;
+    int n0, n1;
+
+    if (texted_isnull((const char *)START_BRAM)) {
+        texted_prnerror(ERROR_NOTEXT);
+        return;
+    }
+    // Find last line (pointing to null_txt_hdr)
+    while (1) {
+        nxtaddr = PEEKW(addr + 3);
+        if (texted_isnull((const char *)nxtaddr)) {
+            break;  // found last line
+        }
+        addr = nxtaddr;
+    }
+    last_line = PEEKW(addr);
+    // parse command args
+    if (strlen(prompt_buf) > 2) {
+        n0 = adv2nxttoken(2);
+        n1 = adv2nextspc(n0);
+        from_line = atoi(prompt_buf + n0);
+        n0 = adv2nxttoken(n1);
+        if (n0 > n1) {
+            adv2nextspc(n0);
+            to_line = atoi(prompt_buf + n0);
+        }
+    }
+    if (from_line > last_line || to_line > last_line || to_line < from_line) {
+        texted_prnerror(ERROR_BADARG);
+        return;
+    }
+    sel_begin = from_line;
+    sel_end = to_line;
+#ifdef DEBUG
+    itoa(sel_begin, ibuf1, RADIX_DEC);
+    itoa(sel_end, ibuf2, RADIX_DEC);
+    puts("DBG: texted_select - begin: ");
+    puts(ibuf1);
+    puts(", end: ");
+    puts(ibuf2);
+    puts("\n\r");
+#endif
 }
 
 /*
