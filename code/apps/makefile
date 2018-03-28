@@ -17,6 +17,7 @@ clean:
 	del *.map
 	del *_prg.txt
 	del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock
+	del texted
 	del eh_basic
 
 lib: mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
@@ -62,6 +63,10 @@ conv: d2hexbin.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
 	cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -o d2hb -m d2hb.map d2hexbin.c mkhbcos.lib
 	..\bin2hex -f d2hb -o d2hb_prg.txt -w 2816 -x 2816 -z
 
+texted: texted.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
+	cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -o texted -m texted.map texted.c mkhbcos.lib
+	..\bin2hex -f texted -o texted_prg.txt -w 2816 -x 2816 -z
+
 tinybas022: tinybas022.asm tinybasic.cfg
 	cl65 --verbose --cpu 6502 --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybas022.map --listing tinybas022.asm
 	..\bin2hex -f tinybas022 -o tinybas022_prg.txt -w 2816 -x 5104 -z
@@ -78,4 +83,4 @@ chess: microchess.asm microchess.cfg
 	cl65 --verbose --asm-include-dir ..\system --config microchess.cfg --target none --mapfile microchess.map --listing microchess.asm
 	..\bin2hex -f microchess -o microchess_prg.txt -w 2816 -x 2816
 
-all: clean lib hello enhmon clock conv tinybasic tinybas022 chess
+all: clean lib hello enhmon clock conv texted tinybasic tinybas022 chess
