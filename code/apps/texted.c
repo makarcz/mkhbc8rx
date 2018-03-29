@@ -22,7 +22,6 @@
  *  Added functions 'b' (bank), 'e' (erase) and 'm' (memory information).
  *  Added text selection, listing the selection, line numbers switch for
  *  listing all content or selection.
- *  WARNING: Untested code.
  *
  *  ..........................................................................
  *  TO DO:
@@ -45,7 +44,11 @@
  *           the line numbers of selected text may change after copy / paste,
  *           but selection itself should remain active? Selection should be
  *           definitely reset after selected text is deleted.
- *      STATUS: DONE, Testing pending.
+ *      STATUS: IN PROGRESS.
+ *      Details:
+ *          'l sel' and optional show line numbers flag [n] implemented.
+ *          Need to implement handlers to check / validate / reset current
+ *          selection after text is changed by any of the editing functions.
  *  3) Implement remaining functions from original requirements (insert, date
  *     and time, select text, delete selection, copy selection).
  *     STATUS: IN PROGRESS.
@@ -109,7 +112,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 0;
-const int ver_build = 7;
+const int ver_build = 8;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -374,7 +377,7 @@ void texted_help(void)
             puts("Press any key to continue...");
             while(!kbhit());    // wait for key press...
             getc();            // consume key
-            puts("\n\r");
+            puts("\n\r\n\r");
         }
     }
 }
@@ -856,11 +859,26 @@ void texted_select(void)
         n1 = adv2nextspc(n0);
         from_line = atoi(prompt_buf + n0);
         n0 = adv2nxttoken(n1);
-        if (n0 > n1) {
-            adv2nextspc(n0);
+        n1 = adv2nextspc(n0);
+        if (n1 > n0) {
+#ifdef DEBUG
+            puts("DBG: texted_select - 2-nd argument detected.\n\r");
+#endif
             to_line = atoi(prompt_buf + n0);
         }
     }
+#ifdef DEBUG
+    itoa(from_line, ibuf1, RADIX_DEC);
+    itoa(to_line, ibuf2, RADIX_DEC);
+    itoa(last_line, ibuf3, RADIX_DEC);
+    puts("DBG: texted_select - from_line: ");
+    puts(ibuf1);
+    puts(", to_line: ");
+    puts(ibuf2);
+    puts(", last_line: ");
+    puts(ibuf3);
+    puts("\n\r");
+#endif
     if (from_line > last_line || to_line > last_line || to_line < from_line) {
         texted_prnerror(ERROR_BADARG);
         return;
