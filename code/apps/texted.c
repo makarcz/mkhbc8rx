@@ -23,6 +23,9 @@
  *  Added text selection, listing the selection, line numbers switch for
  *  listing all content or selection.
  *
+ * 3/29/2018
+ *  Added function 'c' (cut).
+ *
  *  ..........................................................................
  *  TO DO:
  *  1) Introduce the 'magic' string at the beginning of the text memory buffer.
@@ -53,7 +56,12 @@
  *     and time, select text, delete selection, copy selection).
  *     STATUS: IN PROGRESS.
  *     DETAILS:
- *      Text selection added. Needs testing.
+ *      Text selection added. Some testing performed. Needs more testing.
+ *      Cut (delete) selection added. Untested.
+ *  4) Make sure that after deleting text line_num and curr_addr are validated
+ *     to be within the range of actual text in buffer. Also, when switching
+ *     to anothe bank, line_num and curr_addr should be reset to beginning of
+ *     the text.
  *  ..........................................................................
  *  BUGS:
  *
@@ -96,6 +104,7 @@ enum cmdcodes
     CMD_BANK,
     CMD_INFO,
     CMD_INSERT,
+    CMD_CUTSEL,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -112,7 +121,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 0;
-const int ver_build = 8;
+const int ver_build = 9;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -151,7 +160,7 @@ const char *helptext[36] =
     "     d [from_line#-to_line#]\n\r",
     " s : select text.\n\r",
     "     s [from_line#-to_line#]\n\r",
-    " c : delete (cut) selection\n\r",
+    " c : delete (cut) selection.\n\r",
     " p : copy selected text.\n\r",
     "     p [line#]\n\r",
     " x : exit editor, leave text in buffer.\n\r",
@@ -205,6 +214,10 @@ void    texted_initbuf(void);
 void    texted_membank(void);
 void    texted_info(void);
 void    texted_select(void);
+void    delete_text(unsigned int from_line,
+                    unsigned int to_line,
+                    uint16_t lastaddr);
+void    texted_cut(void);
 
 /*
  * Return non-zero if the text record header pointed by hdr is a null header.
@@ -355,6 +368,10 @@ void texted_parse(void)
     {
         cmd_code = CMD_INSERT;
     }
+    else if (*prompt_buf == 'c')
+    {
+        cmd_code = CMD_CUTSEL;
+    }
     else
         cmd_code = CMD_UNKNOWN;
 }
@@ -438,6 +455,9 @@ int texted_exec(void)
         case CMD_SELECT:
             texted_select();
             break;
+        case CMD_CUTSEL:
+            texted_cut();
+            break;
         default:
             break;
     }
@@ -463,9 +483,10 @@ void texted_add(void)
     while (1) {
         // create and store null text header at current address
         strcpy((char *)curr_addr, null_txt_hdr);
+        // get line of text from user input
         texted_getline();
         if (0 == strncmp(eot_str, prompt_buf, strlen(eot_str))) {
-            break;
+            break;  // user entered command to end text entry
         }
         strcpy (CurrLine.text, prompt_buf);
         CurrLine.len = strlen(prompt_buf);
@@ -685,8 +706,8 @@ void texted_goto(void)
 void texted_delete()
 {
     uint16_t addr = START_BRAM;
-    uint16_t nxtaddr, lastaddr, tmpaddr, endaddr;
-    unsigned int from_line, to_line, line, last_line;
+    uint16_t nxtaddr, lastaddr;
+    unsigned int from_line, to_line, last_line;
     int n1, n2;
 
     if (texted_isnull((const char *)START_BRAM)) {
@@ -735,6 +756,21 @@ void texted_delete()
     puts (ibuf2);
     puts ("\n\r");
 #endif
+    delete_text(from_line, to_line, lastaddr);
+}
+
+/*
+ * Delete text from buffer.
+ */
+void delete_text(unsigned int from_line,
+                 unsigned int to_line,
+                 uint16_t lastaddr)
+{
+    uint16_t addr = START_BRAM;
+    uint16_t nxtaddr, tmpaddr, endaddr;
+    unsigned int line;
+    int n2;
+
     // the actual delete procedure
     // 1. Go to the from_line position.
     addr = START_BRAM;
@@ -769,7 +805,7 @@ void texted_delete()
     itoa(tmpaddr, ibuf1, RADIX_HEX);
     itoa(endaddr, ibuf2, RADIX_HEX);
     itoa(lastaddr, ibuf3, RADIX_HEX);
-    puts ("DBG(texted_delete): tmpaddr (begin) = ");
+    puts ("DBG(delete_text): tmpaddr (begin) = ");
     puts (ibuf1);
     puts (", ");
     puts ("endaddr = ");
@@ -795,7 +831,7 @@ void texted_delete()
             // reached the null header, leave it in place and break
 #ifdef DEBUG
             itoa(addr, ibuf1, RADIX_HEX);
-            puts ("DBG(texted_delete): Renumbering, found null header at ");
+            puts ("DBG(delete_text): Renumbering, found null header at ");
             puts (ibuf1);
             puts (".\n\r");
 #endif
@@ -816,11 +852,11 @@ void texted_delete()
             strcpy((char *)nxtaddr, null_txt_hdr);
 #ifdef DEBUG
             itoa(addr, ibuf1, RADIX_HEX);
-            puts ("DBG(texted_delete): WARNING!!! Renumbering, found null header at ");
+            puts ("DBG(delete_text): WARNING!!! Renumbering, found null header at ");
             puts (ibuf1);
             puts (".\n\r");
-            puts ("DBG(texted_delete): Addresses may be out of alignment.\n\r");
-            puts ("DBG(texted_delete): Check your algorithm!\n\r");
+            puts ("DBG(delete_text): Addresses may be out of alignment.\n\r");
+            puts ("DBG(delete_text): Check your algorithm!\n\r");
 #endif
             break;
         }
@@ -862,7 +898,7 @@ void texted_select(void)
         n1 = adv2nextspc(n0);
         if (n1 > n0) {
 #ifdef DEBUG
-            puts("DBG: texted_select - 2-nd argument detected.\n\r");
+            puts("DBG(texted_select): 2-nd argument detected.\n\r");
 #endif
             to_line = atoi(prompt_buf + n0);
         }
@@ -871,7 +907,7 @@ void texted_select(void)
     itoa(from_line, ibuf1, RADIX_DEC);
     itoa(to_line, ibuf2, RADIX_DEC);
     itoa(last_line, ibuf3, RADIX_DEC);
-    puts("DBG: texted_select - from_line: ");
+    puts("DBG(texted_select): from_line: ");
     puts(ibuf1);
     puts(", to_line: ");
     puts(ibuf2);
@@ -888,12 +924,43 @@ void texted_select(void)
 #ifdef DEBUG
     itoa(sel_begin, ibuf1, RADIX_DEC);
     itoa(sel_end, ibuf2, RADIX_DEC);
-    puts("DBG: texted_select - begin: ");
+    puts("DBG(texted_select): begin: ");
     puts(ibuf1);
     puts(", end: ");
     puts(ibuf2);
     puts("\n\r");
 #endif
+}
+
+/*
+ * Delete (cut) textt selection.
+ */
+void texted_cut(void)
+{
+    uint16_t addr = START_BRAM;
+    uint16_t nxtaddr, lastaddr;
+    unsigned int last_line;
+
+    if (texted_isnull((const char *)START_BRAM)) {
+        texted_prnerror(ERROR_NOTEXT);
+        return;
+    }
+    // Find last line (pointing to null_txt_hdr)
+    while (1) {
+        nxtaddr = PEEKW(addr + 3);
+        if (texted_isnull((const char *)nxtaddr)) {
+            break;  // found last line
+        }
+        addr = nxtaddr;
+    }
+    last_line = PEEKW(addr);
+    // last address, just after the null_txt_hdr
+    lastaddr = nxtaddr + strlen(null_txt_hdr);
+    if (sel_end < sel_begin || sel_end > last_line || sel_begin > last_line) {
+        texted_prnerror(ERROR_BADARG);
+        return;
+    }
+    delete_text(sel_begin, sel_end, lastaddr);
 }
 
 /*
