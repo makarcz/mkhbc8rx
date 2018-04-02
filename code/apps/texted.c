@@ -28,11 +28,13 @@
  *
  * 3/31/2018
  *  Testing and corrections of select / cut functions.
- *  Refactored (created getstats() function, renamed some functions).
+ *  Refactored (created checkbuf() function, renamed some functions).
  *
  * 4/2/2018
  *  Working on insert function.
  *  Found and corrected bug in delete function.
+ *  Some code optimizations.
+ *  Added timeout for null header search operation.
  *
  *  ..........................................................................
  *  TO DO:
@@ -42,7 +44,7 @@
  *     DETAILS:
  *      Text selection added.
  *      Cut (delete) selection added.
- *      Function getstats() added which validates text buffer and adjusts
+ *      Function checkbuf() added which validates text buffer and adjusts
  *      global variables / flags.
  *      Insert function added.
  *  2) Optimize code for size.
@@ -75,6 +77,7 @@
 #define RADIX_DEC       10
 #define RADIX_HEX       16
 #define RADIX_BIN       2
+#define MAX_LINES       ((END_BRAM-START_BRAM)/6)
 
 enum cmdcodes
 {
@@ -106,12 +109,13 @@ enum eErrors {
     ERROR_NOTEXT,
     ERROR_BUFNOTINIT,
     ERROR_ADDROOR,
+    ERROR_TIMEOUT,
     ERROR_UNKNOWN
 };
 
 const int ver_major = 1;
 const int ver_minor = 1;
-const int ver_build = 7;
+const int ver_build = 8;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -119,7 +123,7 @@ const char null_txt_hdr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
 // this string is entered by operator to end text adding / insertion
 const char *eot_str = "@EOT";
 
-const char *ga_errmsg[10] =
+const char *ga_errmsg[11] =
 {
     "OK.",
     "Unknown command.",
@@ -129,6 +133,7 @@ const char *ga_errmsg[10] =
     "No text in buffer.",
     "Buffer was never initialized.",
     "Address out of range.",
+    "Timeout during text buffer search operation."
     "Unknown."
 };
 
@@ -186,6 +191,7 @@ char bankinit_flags[8];
 unsigned int line_num, sel_begin, sel_end, last_line, line_count;
 uint16_t curr_addr, lastaddr;
 int bank_num;
+unsigned long tmr64;
 
 void    texted_getline(void);
 void    texted_parse(void);
@@ -210,7 +216,7 @@ void    texted_info(void);
 void    texted_select(void);
 void    delete_text(unsigned int from_line, unsigned int to_line);
 void    texted_cut(void);
-int     getstats(void);
+int     checkbuf(void);
 void    texted_insert(void);
 void    goto_line(unsigned int gtl);
 int     isaddr_oor(uint16_t addr);
@@ -221,7 +227,13 @@ int     isaddr_oor(uint16_t addr);
 int isaddr_oor(uint16_t addr)
 {
     if (addr < START_BRAM || addr > END_BRAM)
+    {
+        prnerror(ERROR_ADDROOR);
+        puts("addr = $");
+        puts(utoa(addr, ibuf1, RADIX_HEX));
+        puts("\n\r");
         return 1;
+    }
 
     return 0;
 }
@@ -231,18 +243,17 @@ int isaddr_oor(uint16_t addr)
  */
 int isnull_hdr(const char *hdr)
 {
-    int i = 0;
+    int i = 1;
     int ret = 1;
 
-    if (hdr == NULL || strlen(hdr) < strlen(null_txt_hdr)) {
+    if (hdr == NULL || hdr[0] != null_txt_hdr[0]) {
         ret = 0;
     } else {
-        while(*hdr != 0 && null_txt_hdr[i] != 0) {
-            if (*hdr != null_txt_hdr[i]) {
+        while(hdr[i] != 0 && null_txt_hdr[i] != 0) {
+            if (hdr[i] != null_txt_hdr[i]) {
                 ret = 0;
                 break;
             }
-            hdr++;
             i++;
         }
     }
@@ -482,7 +493,7 @@ void texted_add(void)
     // Position current address at the NULL line after text.
     curr_addr = START_BRAM;
     line_num = 0;
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     while (1) {
@@ -493,7 +504,6 @@ void texted_add(void)
         nxtaddr = PEEKW(curr_addr + 3);
         curr_addr = nxtaddr;
         if (isaddr_oor(curr_addr)) {
-            prnerror(ERROR_ADDROOR);
             return;
         }
     }
@@ -539,11 +549,10 @@ void texted_add(void)
         line_num++;
         curr_addr = CurrLine.next_ptr;
         if (isaddr_oor(curr_addr)) {
-            prnerror(ERROR_ADDROOR);
             return;
         }
     }
-    getstats(); // update globals after text buffer was altered
+    checkbuf(); // update globals after text buffer was altered
 }
 
 /*
@@ -555,7 +564,7 @@ void texted_insert(void)
     int n1;
     uint16_t addr, nxtaddr, lnum;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     n0 = adv2nxttoken(n0);
@@ -604,17 +613,13 @@ void texted_insert(void)
                     //nxtaddr = addr + strlen((const char *)(addr + 5)) + 6;
                     nxtaddr = addr + PEEK(addr + 2) + 6;
                     if (isaddr_oor(nxtaddr)) {
-                        prnerror(ERROR_ADDROOR);
-                        puts("addr = $");
-                        puts(utoa(addr, ibuf1, RADIX_HEX));
-                        puts("\n\r");
                         return;
                     }
                     POKEW(addr+3, nxtaddr);
                     addr = nxtaddr;
                 }
                 line_num++;
-                getstats();
+                checkbuf();
             } else {
                 // buffer full, end here
                 prnerror(ERROR_FULLBUF);
@@ -636,7 +641,7 @@ void texted_list(void)
     int      show_num = 0;
     int      n0, n;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     if (isnull_hdr((const char *)START_BRAM)) {
@@ -699,10 +704,6 @@ void texted_list(void)
                 to_line = PEEKW(addr);
                 addr = PEEKW(addr + 3);
                 if (isaddr_oor(addr)) {
-                    prnerror(ERROR_ADDROOR);
-                    puts("addr = $");
-                    puts(utoa(addr, ibuf1, RADIX_HEX));
-                    puts("\n\r");
                     return;
                 }
 #ifdef DEBUG
@@ -764,10 +765,6 @@ void texted_list(void)
         }
         addr = PEEKW(addr + 3);
         if (isaddr_oor(addr)) {
-            prnerror(ERROR_ADDROOR);
-            puts("addr = $");
-            puts(utoa(addr, ibuf1, RADIX_HEX));
-            puts("\n\r");
             return;
         }
     }
@@ -817,10 +814,6 @@ void goto_line(unsigned int gtl)
         }
         addr = nxtaddr;
         if (isaddr_oor(addr)) {
-            prnerror(ERROR_ADDROOR);
-            puts("addr = $");
-            puts(utoa(addr, ibuf1, RADIX_HEX));
-            puts("\n\r");
             return;
         }
     }
@@ -834,7 +827,7 @@ void texted_goto(void)
     int n;
     unsigned int line_to;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     if (isnull_hdr((const char *)START_BRAM)) {
@@ -862,7 +855,7 @@ void texted_delete(void)
     unsigned int from_line, to_line;
     int n1, n2;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     if (isnull_hdr((const char *)START_BRAM)) {
@@ -882,7 +875,7 @@ void texted_delete(void)
         if (n2 > n1) {
             to_line = atoi(prompt_buf + n1);
         } else {
-            to_line = from_line;
+            to_line = from_line; // only one argument supplied
         }
     }
     if (from_line > to_line) {
@@ -901,7 +894,7 @@ void texted_delete(void)
     puts ("\n\r");
 #endif
     delete_text(from_line, to_line);
-    getstats(); // update globals after text buffer was altered
+    checkbuf(); // update globals after text buffer was altered
 }
 
 /*
@@ -930,10 +923,6 @@ void delete_text(unsigned int from_line, unsigned int to_line)
         }
         addr = nxtaddr;
         if (isaddr_oor(addr)) {
-            prnerror(ERROR_ADDROOR);
-            puts("addr = $");
-            puts(utoa(addr, ibuf1, RADIX_HEX));
-            puts("\n\r");
             return;
         }
     }
@@ -951,10 +940,6 @@ void delete_text(unsigned int from_line, unsigned int to_line)
         }
         addr = nxtaddr;
         if (isaddr_oor(addr)) {
-            prnerror(ERROR_ADDROOR);
-            puts("addr = $");
-            puts(utoa(addr, ibuf1, RADIX_HEX));
-            puts("\n\r");
             return;
         }
     }
@@ -1019,10 +1004,6 @@ void delete_text(unsigned int from_line, unsigned int to_line)
         }
         addr = nxtaddr;             // do the next line
         if (isaddr_oor(addr)) {
-            prnerror(ERROR_ADDROOR);
-            puts("addr = $");
-            puts(utoa(addr, ibuf1, RADIX_HEX));
-            puts("\n\r");
             return;
         }
     }
@@ -1038,7 +1019,7 @@ void texted_select(void)
     unsigned int to_line = line_num;
     int n0, n1;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     if (isnull_hdr((const char *)START_BRAM)) {
@@ -1089,13 +1070,13 @@ void texted_select(void)
 }
 
 /*
- * Delete (cut) textt selection.
+ * Delete (cut) text selection.
  */
 void texted_cut(void)
 {
     uint16_t addr = START_BRAM;
 
-    if (0 == getstats()) {
+    if (0 == checkbuf()) {
         return;
     }
     if (isnull_hdr((const char *)START_BRAM)) {
@@ -1107,7 +1088,7 @@ void texted_cut(void)
         return;
     }
     delete_text(sel_begin, sel_end);
-    getstats(); // update and validate global variables after text was deleted
+    checkbuf(); // update and validate global variables after text was deleted
 }
 
 /*
@@ -1176,7 +1157,7 @@ void texted_membank(void)
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
-        getstats();
+        checkbuf();
     }
 }
 
@@ -1189,7 +1170,7 @@ void texted_info(void)
     bank_num = *RAMBANKNUM;
     puts(utoa((unsigned int)bank_num, ibuf1, RADIX_DEC));
     puts("\n\r");
-    getstats();
+    checkbuf();
     puts("Last line#: ");
     puts(utoa((unsigned int)last_line, ibuf1, RADIX_DEC));
     puts("\n\r");
@@ -1202,56 +1183,80 @@ void texted_info(void)
 }
 
 /*
- * Check the text buffer for stats and set global variables.
+ * Sanity check.
+ * Check the text buffer and set global variables.
  * Return non-zero if buffer has text or was ever initialized.
  * Return 0 if buffer has non-initialized (random) data.
  */
-int getstats(void)
+int checkbuf(void)
 {
     uint16_t addr = START_BRAM;
+    uint16_t lcount = MAX_LINES;
     int ret = 0;
 
     bank_num = *RAMBANKNUM;
     if (0 == bankinit_flags[bank_num]) {
-        // check if the buffer was ever initialized
-        // unfortunately must be done byte by byte, slow
-        puts("Checking text buffer ... ");
-        while (addr < END_BRAM) {
-            if (isnull_hdr((const char *)addr)) {
-                ret = 1;
-                break;
-            }
-            addr++;
+        // Check if the buffer was ever initialized.
+        // Several protective measures applied to prevent this loop from
+        // looping forever.
+        puts("Text buffer sanity check ... ");
+        tmr64 = *TIMER64HZ + 30 * 64;   // 30 seconds timeout
+        while (lcount > 0 && tmr64 > *TIMER64HZ) {
+
+           if (isnull_hdr((const char *)addr)) {
+               ret = 1;
+               break;
+           }
+           addr = PEEKW(addr + 3);
+           if (isaddr_oor(addr)) {
+               break;
+           }
+           lcount--;
         }
         puts("done.\n\r");
     } else {
         ret = 1;
     }
     if (ret) {
-        bankinit_flags[bank_num] = 1;
+        bankinit_flags[bank_num] = 1;   // set the flag, buffer is sane
         addr = START_BRAM;
         line_count = 0;
         // Find last line (pointing to null_txt_hdr) and line count.
-        while (1) {
+        ret = 0;
+        tmr64 = *TIMER64HZ + 30 * 64;   // 30 seconds timeout
+        lcount = MAX_LINES;
+        while (lcount > 0 && tmr64 > *TIMER64HZ) {
             if (isnull_hdr((const char *)addr)) {
+                ret = 1;
                 break;  // found last line
             }
             last_line = PEEKW(addr);
             addr = PEEKW(addr + 3);
+            if (isaddr_oor(addr)) {
+                break;
+            }
             line_count++;
+            lcount--;
         }
-        lastaddr = addr + strlen(null_txt_hdr);
-        if (0 == line_count || sel_begin > last_line || sel_end > last_line) {
-            sel_begin = 0;
-            sel_end = 0;
-            puts("WARNING: Text selection was reset to line #0.\n\r");
-        }
-        if (line_num > last_line) {
-            line_num = last_line;
-            curr_addr = addr;
-            puts("WARNING: Current line was reset to last line #");
-            puts(utoa(line_num, ibuf1, RADIX_DEC));
-            puts("\n\r");
+        if (ret) {
+            lastaddr = addr + strlen(null_txt_hdr);
+            if (0 == line_count || sel_begin > last_line || sel_end > last_line) {
+                sel_begin = 0;
+                sel_end = 0;
+                puts("WARNING: Text selection was reset to line #0.\n\r");
+            }
+            if (line_num > last_line) {
+                line_num = last_line;
+                curr_addr = addr;
+                puts("WARNING: Current line was reset to last line #");
+                puts(utoa(line_num, ibuf1, RADIX_DEC));
+                puts("\n\r");
+            }
+        } else {
+            prnerror(ERROR_TIMEOUT);
+            puts("Text buffer may be corrupted.");
+            texted_initbuf();
+            ret = isnull_hdr((const char *)START_BRAM);
         }
     } else {
         prnerror(ERROR_BUFNOTINIT);
