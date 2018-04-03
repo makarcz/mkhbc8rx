@@ -35,6 +35,11 @@
  *  Found and corrected bug in delete function.
  *  Some code optimizations.
  *  Added timeout for null header search operation.
+ *  Corrected bug in delete selection.
+ *  Removed commands 'a' and '@EOT' from the text listing output.
+ *
+ * 4/3/2018
+ *  Fixed bug that I planted in isnull_hdr() func.
  *
  *  ..........................................................................
  *  TO DO:
@@ -47,8 +52,8 @@
  *      Function checkbuf() added which validates text buffer and adjusts
  *      global variables / flags.
  *      Insert function added.
- *  2) Optimize code for size.
- *     STATUS: NOT STARTED.
+ *  2) Optimize code for size and speed.
+ *     STATUS: IN PROGRESS.
  *  3) Limit number of text buffer banks to 7 (0-6) and use the last bank (7)
  *     as a clipboard for copy operations.
  *     STATUS: NOT STARTED.
@@ -67,8 +72,10 @@
 #include "mkhbcos_ds1685.h"
 #include "romlib.h"
 
-// Uncomment line below to compile extra debug code.
+// Uncomment line(s) below to compile extra debug code.
 //#define DEBUG
+//#define DBG2
+
 #define IBUF1_SIZE      20
 #define IBUF2_SIZE      20
 #define IBUF3_SIZE      20
@@ -115,7 +122,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 1;
-const int ver_build = 8;
+const int ver_build = 9;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -226,7 +233,7 @@ int     isaddr_oor(uint16_t addr);
  */
 int isaddr_oor(uint16_t addr)
 {
-    if (addr < START_BRAM || addr > END_BRAM)
+    if (addr < START_BRAM || addr >= END_BRAM)
     {
         prnerror(ERROR_ADDROOR);
         puts("addr = $");
@@ -246,7 +253,9 @@ int isnull_hdr(const char *hdr)
     int i = 1;
     int ret = 1;
 
-    if (hdr == NULL || hdr[0] != null_txt_hdr[0]) {
+    if (hdr == NULL
+        || hdr[0] != null_txt_hdr[0]
+        || strlen(hdr) < strlen(null_txt_hdr)) {
         ret = 0;
     } else {
         while(hdr[i] != 0 && null_txt_hdr[i] != 0) {
@@ -263,7 +272,6 @@ int isnull_hdr(const char *hdr)
 
 /*
  * Pause specified # of 1/64-ths of a second.
- * NOTE: Flush the Rx buffer before calling this function.
  */
 void pause_sec64(uint16_t delay)
 {
@@ -729,7 +737,7 @@ void texted_list(void)
     puts (ibuf2);
     puts ("\n\r");
 #endif
-    puts ("a\n\r");
+    //puts ("a\n\r");
     while (1) {
         if (isnull_hdr((const char *)addr)) {
 #ifdef DEBUG
@@ -768,7 +776,9 @@ void texted_list(void)
             return;
         }
     }
-    puts("@EOT\n\r");
+    pause_sec64(150);   // just a bit more than 2 seconds delay to allow
+                        // PropTermMK to time out in SaveOutput2FileSD.
+    //puts("@EOT\n\r");
 }
 
 /*
@@ -1038,6 +1048,8 @@ void texted_select(void)
             puts("DBG(texted_select): 2-nd argument detected.\n\r");
 #endif
             to_line = atoi(prompt_buf + n0);
+        } else {
+            to_line = from_line;
         }
     }
 #ifdef DEBUG
@@ -1153,11 +1165,11 @@ void texted_membank(void)
         line_num = 0;
         sel_begin = 0;
         sel_end = 0;
-        bank_num = *RAMBANKNUM;
+        //bank_num = *RAMBANKNUM;
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
-        checkbuf();
+        texted_info();
     }
 }
 
@@ -1166,20 +1178,43 @@ void texted_membank(void)
  */
 void texted_info(void)
 {
-    puts("Current bank: ");
     bank_num = *RAMBANKNUM;
+    checkbuf();
+    puts("--------------------------------------------\n\r");
+    puts("Current RAM bank#........: ");
     puts(utoa((unsigned int)bank_num, ibuf1, RADIX_DEC));
     puts("\n\r");
-    checkbuf();
-    puts("Last line#: ");
-    puts(utoa((unsigned int)last_line, ibuf1, RADIX_DEC));
+    puts("Current memory address...: $");
+    puts(utoa((unsigned int)curr_addr, ibuf1, RADIX_HEX));
     puts("\n\r");
-    puts("Lines in buffer: ");
-    puts(utoa((unsigned int)line_count, ibuf1, RADIX_DEC));
-    puts("\n\r");
-    puts("Next free memory address (hex): ");
+    puts("Next free memory address.: $");
     puts(utoa((unsigned int)lastaddr, ibuf1, RADIX_HEX));
     puts("\n\r");
+    puts("Current line#............: ");
+    puts(utoa((unsigned int)line_num, ibuf1, RADIX_DEC));
+    puts("\n\r");
+    puts("Last line#...............: ");
+    puts(utoa((unsigned int)last_line, ibuf1, RADIX_DEC));
+    puts("\n\r");
+    puts("Lines in buffer..........: ");
+    puts(utoa((unsigned int)line_count, ibuf1, RADIX_DEC));
+    puts("\n\r");
+    puts("Selected text lines from.: ");
+    puts(utoa((unsigned int)sel_begin, ibuf1, RADIX_DEC));
+    puts(", to.: ");
+    puts(utoa((unsigned int)sel_end, ibuf1, RADIX_DEC));
+    puts("\n\r");
+    puts("--------------------------------------------\n\r");
+#ifdef DBG2
+    puts("DBG2(texted_info): START_BRAM = $");
+    puts(utoa((unsigned int)START_BRAM, ibuf1, RADIX_HEX));
+    puts(", END_BRAM = $");
+    puts(utoa((unsigned int)END_BRAM, ibuf1, RADIX_HEX));
+    puts("\n\r");
+    puts("DBG2(texted_info): MAX_LINES = ");
+    puts(utoa((unsigned int)MAX_LINES, ibuf1, RADIX_DEC));
+    puts("\n\r");
+#endif
 }
 
 /*
@@ -1200,6 +1235,9 @@ int checkbuf(void)
         // Several protective measures applied to prevent this loop from
         // looping forever.
         puts("Text buffer sanity check ... ");
+#ifdef DBG2
+        puts("\n\r");
+#endif
         tmr64 = *TIMER64HZ + 30 * 64;   // 30 seconds timeout
         while (lcount > 0 && tmr64 > *TIMER64HZ) {
 
@@ -1213,6 +1251,16 @@ int checkbuf(void)
            }
            lcount--;
         }
+#ifdef DBG2
+        puts("DBG2(checkbuf): tmr64 = ");
+        puts(ltoa((long)tmr64, ibuf1, RADIX_DEC));
+        puts(", *TIMER64HZ = ");
+        puts(ltoa((long)(*TIMER64HZ), ibuf1, RADIX_DEC));
+        puts("\n\r");
+        puts("DBG2(checkbuf): lcount = ");
+        puts(utoa((unsigned int)lcount, ibuf1, RADIX_DEC));
+        puts("\n\r");
+#endif
         puts("done.\n\r");
     } else {
         ret = 1;
@@ -1227,6 +1275,11 @@ int checkbuf(void)
         lcount = MAX_LINES;
         while (lcount > 0 && tmr64 > *TIMER64HZ) {
             if (isnull_hdr((const char *)addr)) {
+#ifdef DBG2
+                puts("DBG2(checkbuf): null hdr found, addr = $");
+                puts(utoa((unsigned int)addr, ibuf1, RADIX_HEX));
+                puts("\n\r");
+#endif
                 ret = 1;
                 break;  // found last line
             }
@@ -1238,6 +1291,16 @@ int checkbuf(void)
             line_count++;
             lcount--;
         }
+#ifdef DBG2
+        puts("DBG2(checkbuf): tmr64 = ");
+        puts(ltoa((long)tmr64, ibuf1, RADIX_DEC));
+        puts(", *TIMER64HZ = ");
+        puts(ltoa((long)(*TIMER64HZ), ibuf1, RADIX_DEC));
+        puts("\n\r");
+        puts("DBG2(checkbuf): lcount = ");
+        puts(utoa((unsigned int)lcount, ibuf1, RADIX_DEC));
+        puts("\n\r");
+#endif
         if (ret) {
             lastaddr = addr + strlen(null_txt_hdr);
             if (0 == line_count || sel_begin > last_line || sel_end > last_line) {
