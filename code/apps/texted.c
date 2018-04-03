@@ -40,6 +40,8 @@
  *
  * 4/3/2018
  *  Fixed bug that I planted in isnull_hdr() func.
+ *  Added set_timeout(), is_timeout() functions.
+ *  Refactoring.
  *
  *  ..........................................................................
  *  TO DO:
@@ -121,8 +123,8 @@ enum eErrors {
 };
 
 const int ver_major = 1;
-const int ver_minor = 1;
-const int ver_build = 9;
+const int ver_minor = 2;
+const int ver_build = 0;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -164,7 +166,7 @@ const char *helptext[37] =
     " d : delete text.\n\r",
     "     d [from_line#[-to_line#]]\n\r",
     " s : select text.\n\r",
-    "     s [from_line#-to_line#]\n\r",
+    "     s [from_line#[-to_line#]]\n\r",
     " c : delete (cut) selection.\n\r",
     " p : copy selected text.\n\r",
     "     p [line#]\n\r",
@@ -200,8 +202,8 @@ uint16_t curr_addr, lastaddr;
 int bank_num;
 unsigned long tmr64;
 
-void    texted_getline(void);
-void    texted_parse(void);
+void    getline(void);
+void    parse_cmd(void);
 void    texted_help(void);
 void    texted_version(void);
 void    texted_shell(void);
@@ -210,7 +212,7 @@ void    prnerror(int errnum);
 int     adv2nxttoken(int idx);
 int     adv2nextspc(int idx);
 void    texted_prndt(void);
-int     texted_exec(void);
+int     exec_cmd(void);
 void    texted_add(void);
 void    texted_list(void);
 void    texted_goto(void);
@@ -227,6 +229,20 @@ int     checkbuf(void);
 void    texted_insert(void);
 void    goto_line(unsigned int gtl);
 int     isaddr_oor(uint16_t addr);
+void    set_timeout(int secs);
+int     is_timeout(void);
+void    write_text2mem(uint16_t addr);
+
+/*
+ * Write text header and contents to the memory address addr.
+ */
+void write_text2mem(uint16_t addr)
+{
+    POKEW(addr, CurrLine.num);
+    POKE(addr + 2, CurrLine.len);
+    POKEW(addr + 3, CurrLine.next_ptr);
+    strcpy((char *)(addr + 5), CurrLine.text);
+}
 
 /*
  *  Return non-zero if addr is out of range START_BRAM .. END_BRAM.
@@ -286,6 +302,33 @@ void pause_sec64(uint16_t delay)
     }
 }
 
+/*
+ * Set global variable tmr64 to a value that will be reached by system timer
+ * after certain # of seconds (secs).
+ */
+void set_timeout(int secs)
+{
+    if (RTCDETECTED) {
+        tmr64 = *TIMER64HZ + (secs * 64);
+    }
+}
+
+/*
+ * Return 1 if the timeout set by set_timeout() function has expired.
+ */
+int is_timeout(void)
+{
+    int ret = 0;
+
+    if (RTCDETECTED) {
+        if (tmr64 < *TIMER64HZ) {
+            ret = 1;
+        }
+    }
+
+    return ret;
+}
+
 // Command parsing helpers.
 /*
  * Advance index to next token.
@@ -319,24 +362,24 @@ int adv2nextspc(int idx)
     return idx;
 }
 
-/* print error message */
+/* print error message in a separate line */
 void prnerror(int errnum)
 {
-    puts("ERROR: ");
+    puts("\n\rERROR: ");
     puts(ga_errmsg[errnum]);
     puts("\r\n");
 }
 
 /* get line of text from input */
-void texted_getline(void)
+void getline(void)
 {
-    memset(prompt_buf,0,PROMPTBUF_SIZE);
+    memset(prompt_buf, 0, PROMPTBUF_SIZE);
     gets(prompt_buf);
     puts("\n\r");
 }
 
 /* parse the input buffer, set command code */
-void texted_parse(void)
+void parse_cmd(void)
 {
     if (0 == strlen(prompt_buf))
     {
@@ -412,7 +455,7 @@ void texted_help(void)
         if (0 == strncmp(helptext[i],"@EOH",4))
             cont = 0;
         else {
-            puts("   ");  // 3 spaces
+            //puts("   ");  // 3 spaces
             puts(helptext[i++]);
         }
         if (0 == (i%20)) {
@@ -439,7 +482,7 @@ void texted_version(void)
 /*
  * Execute command.
  */
-int texted_exec(void)
+int exec_cmd(void)
 {
     int ret = 1;
 
@@ -498,12 +541,12 @@ void texted_add(void)
 {
     uint16_t nxtaddr;
 
-    // Position current address at the NULL line after text.
     curr_addr = START_BRAM;
     line_num = 0;
     if (0 == checkbuf()) {
         return;
     }
+    // Position current address at the NULL line after text.
     while (1) {
         if (isnull_hdr((const char *)curr_addr)) {
             break; // found null header
@@ -519,7 +562,7 @@ void texted_add(void)
         // create and store null text header at current address
         strcpy((char *)curr_addr, null_txt_hdr);
         // get line of text from user input
-        texted_getline();
+        getline();
         if (0 == strncmp(eot_str, prompt_buf, strlen(eot_str))) {
             break;  // user entered command to end text entry
         }
@@ -541,7 +584,7 @@ void texted_add(void)
             // buffer was filled until end-of-text command is entered.
             while(1) {
                 prnerror(ERROR_FULLBUF);
-                texted_getline();
+                getline();
                 if (0 == strncmp(eot_str, prompt_buf, strlen(eot_str))) {
                     break;  // user entered command to end text entry
                 }
@@ -549,10 +592,8 @@ void texted_add(void)
             break;
         }
         // update header and text at current address
-        POKEW(curr_addr, line_num);
-        POKE(curr_addr + 2, CurrLine.len);
-        POKEW(curr_addr + 3, CurrLine.next_ptr);
-        strcpy((char *)(curr_addr + 5), CurrLine.text);
+        CurrLine.num = line_num;
+        write_text2mem(curr_addr);
         // proceed to next address
         line_num++;
         curr_addr = CurrLine.next_ptr;
@@ -591,7 +632,7 @@ void texted_insert(void)
         while (1) {
             goto_line(line_num);
             // get the text from user input
-            texted_getline();
+            getline();
             if (0 == strncmp(eot_str, prompt_buf, strlen(eot_str))) {
                 break;  // user entered command to end text entry
             }
@@ -606,10 +647,8 @@ void texted_insert(void)
                         (const void *)curr_addr,
                         (size_t)(lastaddr - curr_addr + 1));
                 // 2. Insert newly entered line
-                POKEW(curr_addr, line_num);
-                POKE(curr_addr + 2, CurrLine.len);
-                POKEW(curr_addr + 3, CurrLine.next_ptr);
-                strcpy((char *)(curr_addr + 5), CurrLine.text);
+                CurrLine.num = line_num;
+                write_text2mem(curr_addr);
                 // 3. Renumber following lines
                 addr = CurrLine.next_ptr;
                 while(1) {
@@ -618,12 +657,11 @@ void texted_insert(void)
                     }
                     lnum = PEEKW(addr) + 1;
                     POKEW(addr, lnum);
-                    //nxtaddr = addr + strlen((const char *)(addr + 5)) + 6;
                     nxtaddr = addr + PEEK(addr + 2) + 6;
                     if (isaddr_oor(nxtaddr)) {
                         return;
                     }
-                    POKEW(addr+3, nxtaddr);
+                    POKEW(addr + 3, nxtaddr);
                     addr = nxtaddr;
                 }
                 line_num++;
@@ -1113,9 +1151,9 @@ void texted_shell(void)
     while(cont)
     {
         puts("texted>");
-        texted_getline();
-        texted_parse();
-        cont = texted_exec();
+        getline();
+        parse_cmd();
+        cont = exec_cmd();
     }
 }
 
@@ -1137,7 +1175,7 @@ void texted_banner(void)
 void texted_initbuf(void)
 {
     puts("Initialize text buffer? (Y/N) ");
-    texted_getline();
+    getline();
     if (*prompt_buf == 'y' || *prompt_buf == 'Y') {
         strcpy((char *)START_BRAM, null_txt_hdr);
         line_num = 0;
@@ -1165,16 +1203,15 @@ void texted_membank(void)
         line_num = 0;
         sel_begin = 0;
         sel_end = 0;
-        //bank_num = *RAMBANKNUM;
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
-        texted_info();
+        texted_info();  // set bank_num, validate buffer and display info
     }
 }
 
 /*
- * Show memory use info.
+ * Set bank_num, validate buffer and display text buffer and memory use info.
  */
 void texted_info(void)
 {
@@ -1238,8 +1275,8 @@ int checkbuf(void)
 #ifdef DBG2
         puts("\n\r");
 #endif
-        tmr64 = *TIMER64HZ + 30 * 64;   // 30 seconds timeout
-        while (lcount > 0 && tmr64 > *TIMER64HZ) {
+        set_timeout(30); // 30 seconds timeout
+        while (lcount > 0 && 0 == is_timeout()) {
 
            if (isnull_hdr((const char *)addr)) {
                ret = 1;
@@ -1271,9 +1308,9 @@ int checkbuf(void)
         line_count = 0;
         // Find last line (pointing to null_txt_hdr) and line count.
         ret = 0;
-        tmr64 = *TIMER64HZ + 30 * 64;   // 30 seconds timeout
+        set_timeout(30);   // 30 seconds timeout
         lcount = MAX_LINES;
-        while (lcount > 0 && tmr64 > *TIMER64HZ) {
+        while (lcount > 0 && 0 == is_timeout()) {
             if (isnull_hdr((const char *)addr)) {
 #ifdef DBG2
                 puts("DBG2(checkbuf): null hdr found, addr = $");
