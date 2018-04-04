@@ -43,6 +43,10 @@
  *  Added set_timeout(), is_timeout() functions.
  *  Refactoring.
  *
+ * 4/4/2018
+ *  Added copy selection function.
+ *  Adder renumber() function.
+ *
  *  ..........................................................................
  *  TO DO:
  *  1) Implement remaining functions from original requirements (insert, date
@@ -54,11 +58,9 @@
  *      Function checkbuf() added which validates text buffer and adjusts
  *      global variables / flags.
  *      Insert function added.
+ *      Copy selection added.
  *  2) Optimize code for size and speed.
  *     STATUS: IN PROGRESS.
- *  3) Limit number of text buffer banks to 7 (0-6) and use the last bank (7)
- *     as a clipboard for copy operations.
- *     STATUS: NOT STARTED.
  *  ..........................................................................
  *  BUGS:
  *
@@ -77,7 +79,7 @@
 // Uncomment line(s) below to compile extra debug code.
 //#define DEBUG
 //#define DBG2
-
+#define DBG3
 #define IBUF1_SIZE      20
 #define IBUF2_SIZE      20
 #define IBUF3_SIZE      20
@@ -87,6 +89,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
+#define CLIPBRDBUF_SIZE 2048
 
 enum cmdcodes
 {
@@ -119,12 +122,14 @@ enum eErrors {
     ERROR_BUFNOTINIT,
     ERROR_ADDROOR,
     ERROR_TIMEOUT,
+    ERROR_CLIPBRDOVF,
+    ERROR_EMPTYCLIPBRD,
     ERROR_UNKNOWN
 };
 
 const int ver_major = 1;
 const int ver_minor = 2;
-const int ver_build = 0;
+const int ver_build = 1;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -132,7 +137,7 @@ const char null_txt_hdr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
 // this string is entered by operator to end text adding / insertion
 const char *eot_str = "@EOT";
 
-const char *ga_errmsg[11] =
+const char *ga_errmsg[13] =
 {
     "OK.",
     "Unknown command.",
@@ -142,7 +147,9 @@ const char *ga_errmsg[11] =
     "No text in buffer.",
     "Buffer was never initialized.",
     "Address out of range.",
-    "Timeout during text buffer search operation."
+    "Timeout during text buffer search operation.",
+    "Clipboard buffer overflow.",
+    "Clipboard is empty.",
     "Unknown."
 };
 
@@ -165,7 +172,7 @@ const char *helptext[37] =
     "     g <line#>\n\r",
     " d : delete text.\n\r",
     "     d [from_line#[-to_line#]]\n\r",
-    " s : select text.\n\r",
+    " s : select text. (copies to clipboard)\n\r",
     "     s [from_line#[-to_line#]]\n\r",
     " c : delete (cut) selection.\n\r",
     " p : copy selected text.\n\r",
@@ -196,45 +203,108 @@ struct text_line {
 int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
+char clipbrd[CLIPBRDBUF_SIZE];
 char bankinit_flags[8];
 unsigned int line_num, sel_begin, sel_end, last_line, line_count;
 uint16_t curr_addr, lastaddr;
 int bank_num;
 unsigned long tmr64;
 
-void    getline(void);
-void    parse_cmd(void);
-void    texted_help(void);
-void    texted_version(void);
-void    texted_shell(void);
-void    texted_banner(void);
-void    prnerror(int errnum);
-int     adv2nxttoken(int idx);
-int     adv2nextspc(int idx);
-void    texted_prndt(void);
-int     exec_cmd(void);
-void    texted_add(void);
-void    texted_list(void);
-void    texted_goto(void);
-void    texted_delete(void);
-void    pause_sec64(uint16_t delay);
-int     isnull_hdr(const char *hdr);
-void    texted_initbuf(void);
-void    texted_membank(void);
-void    texted_info(void);
-void    texted_select(void);
-void    delete_text(unsigned int from_line, unsigned int to_line);
-void    texted_cut(void);
-int     checkbuf(void);
-void    texted_insert(void);
-void    goto_line(unsigned int gtl);
-int     isaddr_oor(uint16_t addr);
-void    set_timeout(int secs);
-int     is_timeout(void);
-void    write_text2mem(uint16_t addr);
+void        getline(void);
+void        parse_cmd(void);
+void        texted_help(void);
+void        texted_version(void);
+void        texted_shell(void);
+void        texted_banner(void);
+void        prnerror(int errnum);
+int         adv2nxttoken(int idx);
+int         adv2nextspc(int idx);
+void        texted_prndt(void);
+int         exec_cmd(void);
+void        texted_add(void);
+void        texted_list(void);
+void        texted_goto(void);
+void        texted_delete(void);
+void        pause_sec64(uint16_t delay);
+int         isnull_hdr(const char *hdr);
+void        texted_initbuf(void);
+void        texted_membank(void);
+void        texted_info(void);
+void        texted_select(void);
+void        delete_text(unsigned int from_line, unsigned int to_line);
+void        texted_cut(void);
+int         checkbuf(void);
+void        texted_insert(void);
+void        goto_line(unsigned int gtl);
+int         isaddr_oor(uint16_t addr);
+void        set_timeout(int secs);
+int         is_timeout(void);
+void        write_text2mem(uint16_t addr);
+int         copy2clipbrd(unsigned int from_line, unsigned int to_line);
+void        texted_copy(void);
+uint16_t    renumber(uint16_t addr);
 
 /*
- * Write text header and contents to the memory address addr.
+ * Copy selected block of text to the clipboard.
+ * To save space, only text is copied, not the headers.
+ * In case the selected block is too big for the clipboard, error is printed
+ * and only the amount of text that can fit in the clipboard is copied.
+ * Return # of lines copied.
+ */
+int copy2clipbrd(unsigned int from_line, unsigned int to_line)
+{
+    uint16_t addr = START_BRAM;
+    int clipbrd_index = 0;
+    int ret = 0, i = 0;
+    unsigned int line, llen;
+
+    // clear the clipboard
+    for ( ; i < CLIPBRDBUF_SIZE; i++) {
+        clipbrd[i] = 0;
+        strcpy(clipbrd, null_txt_hdr);
+    }
+    // copy selected text to clipboard
+    while(addr < END_BRAM) {
+        if (isnull_hdr((const char *)addr)) {
+            break;  // end of text buffer reached
+        }
+        line = PEEKW(addr);
+        if (line > to_line) {
+            break;  // all selected lines copied
+        }
+        if (line >= from_line) { // copy text from record in buffer to clipbrd
+            llen = PEEK(addr + 2);
+            if ((clipbrd_index + llen + strlen(null_txt_hdr))
+                   < CLIPBRDBUF_SIZE) {
+
+                strcpy((char *)(clipbrd + clipbrd_index),
+                       (const char *)PEEKW(addr + 5));
+                clipbrd_index += (llen + 1);
+                // put null header at the end
+                strcpy((char *)(clipbrd + clipbrd_index), null_txt_hdr);
+                ret++;
+            } else { // clipboard buffer overflow
+                prnerror(ERROR_CLIPBRDOVF);
+                break;
+            }
+        }
+        addr = PEEKW(addr + 3); // next text record
+        if (isaddr_oor(addr)) {
+            break;  // address out of range
+        }
+    }
+
+#ifdef DBG3
+    puts("\n\rDBG3(copy2clipbrd): Copied ");
+    puts(utoa(ret, ibuf1, RADIX_DEC));
+    puts(" lines to the clipboard.\n\r");
+#endif
+
+    return ret;
+}
+
+/*
+ * Write single text record (header and contents) to the memory address addr.
  */
 void write_text2mem(uint16_t addr)
 {
@@ -530,6 +600,9 @@ int exec_cmd(void)
         case CMD_INSERT:
             texted_insert();
             break;
+        case CMD_COPY:
+            texted_copy();
+            break;
         default:
             break;
     }
@@ -605,13 +678,39 @@ void texted_add(void)
 }
 
 /*
+ * Renumber line numbers in text records (increment) starting at address addr.
+ * Return address where the renumbering ended.
+ */
+uint16_t renumber(uint16_t addr)
+{
+    unsigned int lnum;
+    uint16_t nxtaddr;
+
+    while(1) {
+        if (isnull_hdr((const char *)addr)) {
+            break;
+        }
+        lnum = PEEKW(addr) + 1;
+        POKEW(addr, lnum);
+        nxtaddr = addr + PEEK(addr + 2) + 6;
+        if (isaddr_oor(nxtaddr)) {
+            break;
+        }
+        POKEW(addr + 3, nxtaddr);
+        addr = nxtaddr;
+    }
+
+    return addr;
+}
+
+/*
  * Insert text in the middle of the buffer, at the beginning or at the end.
  */
 void texted_insert(void)
 {
     int n0 = 2;
     int n1;
-    uint16_t addr, nxtaddr, lnum;
+    uint16_t addr;
 
     if (0 == checkbuf()) {
         return;
@@ -651,19 +750,7 @@ void texted_insert(void)
                 write_text2mem(curr_addr);
                 // 3. Renumber following lines
                 addr = CurrLine.next_ptr;
-                while(1) {
-                    if (isnull_hdr((const char *)addr)) {
-                        break;
-                    }
-                    lnum = PEEKW(addr) + 1;
-                    POKEW(addr, lnum);
-                    nxtaddr = addr + PEEK(addr + 2) + 6;
-                    if (isaddr_oor(nxtaddr)) {
-                        return;
-                    }
-                    POKEW(addr + 3, nxtaddr);
-                    addr = nxtaddr;
-                }
+                addr = renumber(addr);
                 line_num++;
                 checkbuf();
             } else {
@@ -671,6 +758,72 @@ void texted_insert(void)
                 prnerror(ERROR_FULLBUF);
                 break;
             }
+        }
+    }
+}
+
+/*
+ * Copy text from clipboard to a specified (or current) line.
+ */
+void texted_copy(void)
+{
+    int n0 = 2;
+    int clipbrd_index = 0;
+    int adding = 0;
+    int n1;
+    uint16_t addr;
+
+    if (0 == checkbuf()) {
+        return;
+    }
+    if (isnull_hdr((const char *)clipbrd)) {
+        prnerror(ERROR_EMPTYCLIPBRD);
+        return;
+    }
+    n0 = adv2nxttoken(n0);
+    n1 = adv2nextspc(n0);
+    if (n1 > n0) {
+        line_num = atoi(prompt_buf + n0);
+    }
+    if (line_num > last_line) {
+        prnerror(ERROR_BADARG);
+        return;
+    }
+    adding = isnull_hdr((const char *)START_BRAM); // adding or inserting?
+    while(clipbrd_index < CLIPBRDBUF_SIZE) {
+        if (isnull_hdr((const char *)(clipbrd + clipbrd_index))) {
+            break; // reached the end of text in clipboard
+        }
+        goto_line(line_num);
+        strcpy(CurrLine.text, (const char *)(clipbrd + clipbrd_index));
+        CurrLine.len = strlen((const char *)(clipbrd + clipbrd_index));
+        clipbrd_index += (CurrLine.len + 1);
+        CurrLine.num = line_num;
+        CurrLine.next_ptr = curr_addr + CurrLine.len + 6;
+        if (END_BRAM > (lastaddr + CurrLine.len + 6)) {
+            // there is space for new line, so continue...
+            // 1. Move text down (if inserting)
+            if (0 == adding) {
+                memmove((void *)CurrLine.next_ptr,
+                        (const void *)curr_addr,
+                        (size_t)(lastaddr - curr_addr + 1));
+            }
+            // 2. Insert newly entered line
+            write_text2mem(curr_addr);
+            // 3. Renumber following lines (if inserting)
+            addr = CurrLine.next_ptr;
+            if (adding) {
+                strcpy((char *)addr, null_txt_hdr); // write null header
+                curr_addr = addr;
+            } else {
+                addr = renumber(addr);
+            }
+            line_num++;
+            checkbuf();
+        } else {
+            // buffer full, end here
+            prnerror(ERROR_FULLBUF);
+            break;
         }
     }
 }
@@ -1117,6 +1270,7 @@ void texted_select(void)
     puts(ibuf2);
     puts("\n\r");
 #endif
+    copy2clipbrd(sel_begin, sel_end);
 }
 
 /*
