@@ -46,6 +46,7 @@
  * 4/4/2018
  *  Added copy selection function.
  *  Adder renumber() function.
+ *  Fixed bugs in recently added code.
  *
  *  ..........................................................................
  *  TO DO:
@@ -79,7 +80,8 @@
 // Uncomment line(s) below to compile extra debug code.
 //#define DEBUG
 //#define DBG2
-#define DBG3
+//#define DBG3
+
 #define IBUF1_SIZE      20
 #define IBUF2_SIZE      20
 #define IBUF3_SIZE      20
@@ -89,7 +91,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
-#define CLIPBRDBUF_SIZE 2048
+#define CLIPBRDBUF_SIZE 1024*3
 
 enum cmdcodes
 {
@@ -129,13 +131,14 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 2;
-const int ver_build = 1;
+const int ver_build = 3;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
 const char null_txt_hdr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
 // this string is entered by operator to end text adding / insertion
 const char *eot_str = "@EOT";
+const char *divider = "--------------------------------------------\n\r";
 
 const char *ga_errmsg[13] =
 {
@@ -153,16 +156,17 @@ const char *ga_errmsg[13] =
     "Unknown."
 };
 
-const char *helptext[37] =
+const char *helptext[38] =
 {
     "\n\r",
     " b : select / show current file # (bank #).\n\r",
     "     b [00..07]\n\r",
     " l : List text buffer contents.\n\r",
-    "     l all [n] | sel [n] | [from_line#[-to_line#]] [n]\n\r",
+    "     l all [n] | sel [n] | clb | [from_line#[-to_line#]] [n]\n\r",
     "       n - show line numbers\n\r",
     "       all - list all content\n\r",
     "       sel - list only selected content\n\r",
+    "       clb - list clipboard contents\n\r",
     " a : start adding text at the end of buffer.\n\r",
     " i : start inserting text at line# (or current line).\n\r",
     "     i [line#]\n\r",
@@ -243,6 +247,27 @@ void        write_text2mem(uint16_t addr);
 int         copy2clipbrd(unsigned int from_line, unsigned int to_line);
 void        texted_copy(void);
 uint16_t    renumber(uint16_t addr);
+void        list_clipbrd(void);
+
+/*
+ * List clipboard contents.
+ */
+void list_clipbrd(void)
+{
+    char *s = clipbrd;
+    unsigned int llen;
+
+    set_timeout(5);
+    while(0 == is_timeout()) {
+        if (isnull_hdr((const char *)s)) {
+            break;
+        }
+        puts(s);
+        puts("\n\r");
+        llen = strlen(s);
+        s += (llen + 1);
+    }
+}
 
 /*
  * Copy selected block of text to the clipboard.
@@ -261,8 +286,8 @@ int copy2clipbrd(unsigned int from_line, unsigned int to_line)
     // clear the clipboard
     for ( ; i < CLIPBRDBUF_SIZE; i++) {
         clipbrd[i] = 0;
-        strcpy(clipbrd, null_txt_hdr);
     }
+    strcpy(clipbrd, null_txt_hdr);
     // copy selected text to clipboard
     while(addr < END_BRAM) {
         if (isnull_hdr((const char *)addr)) {
@@ -277,8 +302,16 @@ int copy2clipbrd(unsigned int from_line, unsigned int to_line)
             if ((clipbrd_index + llen + strlen(null_txt_hdr))
                    < CLIPBRDBUF_SIZE) {
 
+                *(clipbrd + clipbrd_index) = 0;
                 strcpy((char *)(clipbrd + clipbrd_index),
-                       (const char *)PEEKW(addr + 5));
+                       (const char *)(addr + 5));
+#ifdef DBG3
+                puts("DBG3(copy2clipbrd): Copied to clipboard [");
+                puts(itoa(clipbrd_index, ibuf1, RADIX_DEC));
+                puts("]:\n\r");
+                puts((const char *)(clipbrd + clipbrd_index));
+                puts("\n\r");
+#endif
                 clipbrd_index += (llen + 1);
                 // put null header at the end
                 strcpy((char *)(clipbrd + clipbrd_index), null_txt_hdr);
@@ -789,12 +822,18 @@ void texted_copy(void)
         prnerror(ERROR_BADARG);
         return;
     }
-    adding = isnull_hdr((const char *)START_BRAM); // adding or inserting?
+    if (isnull_hdr((const char *)START_BRAM)) {
+        line_num = 0;
+        curr_addr = START_BRAM;
+        adding = 1;
+    } else {
+        goto_line(line_num);
+    }
     while(clipbrd_index < CLIPBRDBUF_SIZE) {
         if (isnull_hdr((const char *)(clipbrd + clipbrd_index))) {
             break; // reached the end of text in clipboard
         }
-        goto_line(line_num);
+        adding = isnull_hdr((const char *)curr_addr);
         strcpy(CurrLine.text, (const char *)(clipbrd + clipbrd_index));
         CurrLine.len = strlen((const char *)(clipbrd + clipbrd_index));
         clipbrd_index += (CurrLine.len + 1);
@@ -812,14 +851,15 @@ void texted_copy(void)
             write_text2mem(curr_addr);
             // 3. Renumber following lines (if inserting)
             addr = CurrLine.next_ptr;
+            curr_addr = addr;
             if (adding) {
                 strcpy((char *)addr, null_txt_hdr); // write null header
-                curr_addr = addr;
             } else {
                 addr = renumber(addr);
             }
+            lastaddr = addr + strlen(null_txt_hdr);
             line_num++;
-            checkbuf();
+            //checkbuf();
         } else {
             // buffer full, end here
             prnerror(ERROR_FULLBUF);
@@ -843,14 +883,19 @@ void texted_list(void)
     if (0 == checkbuf()) {
         return;
     }
-    if (isnull_hdr((const char *)START_BRAM)) {
-        prnerror(ERROR_NOTEXT);
-        return;
-    }
     if (strlen(prompt_buf) > 1) {
         n0 = adv2nxttoken(2);
         n = adv2nextspc(n0);
-        if (0 == strncmp(prompt_buf + n0, "sel", 3)) {
+        if (0 == strncmp(prompt_buf + n0, "clb", 3)) {
+
+            if (0 == isnull_hdr((const char *)clipbrd)) {
+                list_clipbrd();
+            } else {
+                prnerror(ERROR_EMPTYCLIPBRD);
+            }
+            return;
+
+        } else if (0 == strncmp(prompt_buf + n0, "sel", 3)) {
 #ifdef DEBUG
             puts("DBG(texted_list): List selected content.\n\r");
 #endif
@@ -928,6 +973,10 @@ void texted_list(void)
     puts (ibuf2);
     puts ("\n\r");
 #endif
+    if (isnull_hdr((const char *)START_BRAM)) {
+        prnerror(ERROR_NOTEXT);
+        return;
+    }
     //puts ("a\n\r");
     while (1) {
         if (isnull_hdr((const char *)addr)) {
@@ -1371,7 +1420,7 @@ void texted_info(void)
 {
     bank_num = *RAMBANKNUM;
     checkbuf();
-    puts("--------------------------------------------\n\r");
+    puts(divider);
     puts("Current RAM bank#........: ");
     puts(utoa((unsigned int)bank_num, ibuf1, RADIX_DEC));
     puts("\n\r");
@@ -1395,7 +1444,7 @@ void texted_info(void)
     puts(", to.: ");
     puts(utoa((unsigned int)sel_end, ibuf1, RADIX_DEC));
     puts("\n\r");
-    puts("--------------------------------------------\n\r");
+    puts(divider);
 #ifdef DBG2
     puts("DBG2(texted_info): START_BRAM = $");
     puts(utoa((unsigned int)START_BRAM, ibuf1, RADIX_HEX));

@@ -19,6 +19,7 @@ clean:
 	del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock
 	del texted
 	del eh_basic
+	del floader
 
 lib: mkhbcos_init.o mkhbcos_serialio.o mkhbcos_lcd.o mkhbcos_lcd1602.o mkhbcos_ansi.o mkhbcos_ds1685.o
 	@echo      Update library ...
@@ -83,4 +84,8 @@ chess: microchess.asm microchess.cfg
 	cl65 --verbose --asm-include-dir ..\system --config microchess.cfg --target none --mapfile microchess.map --listing microchess.asm
 	..\bin2hex -f microchess -o microchess_prg.txt -w 2816 -x 2816
 
-all: clean lib hello enhmon clock conv texted tinybasic tinybas022 chess
+floader: floader.c himem.cfg
+	cl65 -t none --cpu 6502 -I ..\system --config himem.cfg -l -o floader -m floader.map floader.c mkhbcos.lib
+	..\bin2hex -f floader -o floader_prg.txt -w 22784 -x 22784 -z
+
+all: clean lib hello enhmon clock conv texted tinybasic tinybas022 chess floader
