@@ -32,7 +32,7 @@
 char ibuf1[IBUF1_SIZE];
 unsigned long tmr64;
 uint16_t start_addr, addr;
-unsigned char b;
+//unsigned char b;
 int cont;
 
 /////////////////////////// M A I N    F U N C T I O N //////////////////////
@@ -46,15 +46,16 @@ int main(void)
     addr = start_addr;
     puts("\n\rWaiting for data...\n\r");
     while(!KBHIT);
-    puts("Loading");
+    puts("Loading...\n\r");
     while(cont) {
-        //if (!cont) break;
-        b = getc();
-        POKE(addr, b);
-        putchar('.');
-        addr++;
+        //b = getc();
+        puts(utoa(addr, ibuf1, RADIX_HEX));
+        puts("\r");
+        POKE(addr++, getc());
+        //putchar('.');
+        //addr++;
         if (RTCDETECTED) {
-            tmr64 = *TIMER64HZ + 256;    // 4 seconds timeout
+            tmr64 = *TIMER64HZ + 128;    // 2 seconds timeout
             while(!KBHIT) {
                 if (tmr64 < *TIMER64HZ) {
                     cont = 0;

@@ -48,6 +48,11 @@
  *  Adder renumber() function.
  *  Fixed bugs in recently added code.
  *
+ * 4/5/2018
+ *  Added comments.
+ *  Added options to 'g' command.
+ *  Some refactoring and small changes.
+ *
  *  ..........................................................................
  *  TO DO:
  *  1) Implement remaining functions from original requirements (insert, date
@@ -131,7 +136,7 @@ enum eErrors {
 
 const int ver_major = 1;
 const int ver_minor = 2;
-const int ver_build = 3;
+const int ver_build = 4;
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -172,8 +177,8 @@ const char *helptext[38] =
     "     i [line#]\n\r",
     "     NOTE: 'a' and 'i' functions - type '@EOT' in a new line\n\r",
     "           and press ENTER to finish and exit to command prompt.\n\r",
-    " g : go to line.\n\r",
-    "     g <line#>\n\r",
+    " g : go to specified line in text buffer.\n\r",
+    "     g start | end | [line#]\n\r",
     " d : delete text.\n\r",
     "     d [from_line#[-to_line#]]\n\r",
     " s : select text. (copies to clipboard)\n\r",
@@ -643,6 +648,9 @@ int exec_cmd(void)
     return ret;
 }
 
+/*
+ *  Add text at the end of the text buffer.
+ */
 void texted_add(void)
 {
     uint16_t nxtaddr;
@@ -682,11 +690,11 @@ void texted_add(void)
         puts ("\n\r");
 #endif
         if (CurrLine.next_ptr > (END_BRAM - 6)) {
-            // Text buffer full, terminate text entry here:
-            // Loop while consuming user input until magic string is entered.
-            // Produce the error message each time new line is entered.
+            // Text buffer full, terminate text entry here.
+            // User must still enter '@EOT' to exit loop.
             // This is to prevent entering accidental command while loading
-            // text via serial port - instead: ignore all incoming text after
+            // text via serial port and buffer overflows while input data is
+            // still coming. Instead ignore all incoming text after
             // buffer was filled until end-of-text command is entered.
             while(1) {
                 prnerror(ERROR_FULLBUF);
@@ -712,6 +720,8 @@ void texted_add(void)
 
 /*
  * Renumber line numbers in text records (increment) starting at address addr.
+ * Also, refresh the next record pointers in these text records as this
+ * function is called after the text has been relocated in buffer.
  * Return address where the renumbering ended.
  */
 uint16_t renumber(uint16_t addr)
@@ -737,7 +747,14 @@ uint16_t renumber(uint16_t addr)
 }
 
 /*
- * Insert text in the middle of the buffer, at the beginning or at the end.
+ * Insert text anywhere in the text buffer.
+ * Command is expected in prompt_buf in following format before calling
+ * this function:
+ * "i [line#]"
+ * NOTE: This function will always insert text. If you provide line# equal to
+ *       last line in the text, the last line in the text will be effectively
+ *       pushed down by newly added lines.
+ *       To add lines at the end, use texted_add() function.
  */
 void texted_insert(void)
 {
@@ -797,6 +814,14 @@ void texted_insert(void)
 
 /*
  * Copy text from clipboard to a specified (or current) line.
+ * Command in following format is expected in prompt_buf:
+ * "p [line#]"
+ * NOTE: This function will always insert text. If you provide line# equal to
+ *       last line in the text, the last line in the text will be effectively
+ *       pushed down by newly added lines.
+ *       To copy selection / clipboard at the end, first add an empty line to
+ *       the text (if not already there) and then call this function with
+ *       line# that equals last line number in text buffer.
  */
 void texted_copy(void)
 {
@@ -870,6 +895,8 @@ void texted_copy(void)
 
 /*
  * List text buffer contents.
+ * Command is expected in prompt_buf before calling this function:
+ * "l all [n] | l sel [n] | l clb | l [from_line#[-to_line#]] [n]"
  */
 void texted_list(void)
 {
@@ -1071,10 +1098,12 @@ void goto_line(unsigned int gtl)
 
 /*
  * Move the current line marker to the line specified in command arg.
+ * Command is expected in prompt_buf before calling this function:
+ * "g start | end | [line#]"
  */
 void texted_goto(void)
 {
-    int n;
+    int n0, n1;
     unsigned int line_to;
 
     if (0 == checkbuf()) {
@@ -1085,9 +1114,19 @@ void texted_goto(void)
         return;
     }
 
-    n = adv2nxttoken(2);
-    adv2nextspc(n);
-    line_to = atoi(prompt_buf + n);
+    n0 = adv2nxttoken(2);
+    n1 = adv2nextspc(n0);
+    if (n1 > n0) {
+        if (0 == strncmp(prompt_buf + n0, "start", 5)) {
+            line_to = 0;
+        } else if (0 == strncmp(prompt_buf + n0, "end", 3)) {
+            line_to = last_line;
+        } else {
+            line_to = atoi(prompt_buf + n0);
+        }
+    } else {
+        line_to = line_num;
+    }
 
     if (line_to > last_line) {
         prnerror(ERROR_BADARG);
@@ -1098,6 +1137,8 @@ void texted_goto(void)
 
 /*
  * Delete current line or specified range of lines.
+ * Command is expected in prompt_buf before this function is called:
+ * "d [from_line#[-to_line#]]"
  */
 void texted_delete(void)
 {
@@ -1261,6 +1302,8 @@ void delete_text(unsigned int from_line, unsigned int to_line)
 
 /*
  * Select text in buffer.
+ * Command is expected in prompt_buf before calling this function:
+ * "s [from_line#[-to_line#]]"
  */
 void texted_select(void)
 {
@@ -1280,7 +1323,9 @@ void texted_select(void)
     if (strlen(prompt_buf) > 2) {
         n0 = adv2nxttoken(2);
         n1 = adv2nextspc(n0);
-        from_line = atoi(prompt_buf + n0);
+        if (n1 > n0) {
+            from_line = atoi(prompt_buf + n0);
+        }
         n0 = adv2nxttoken(n1);
         n1 = adv2nextspc(n0);
         if (n1 > n0) {
@@ -1395,6 +1440,8 @@ void texted_initbuf(void)
 
 /*
  * Show / set current memory bank.
+ * Command is expected in prompt_buf before calling this function:
+ * "b [hex_bank#]" (e.g.: "b 02")
  */
 void texted_membank(void)
 {

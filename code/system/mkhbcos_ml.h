@@ -51,7 +51,7 @@
 #define RAMBANKNUM  ((unsigned char *)0x00E6) // pointer to RAM bank# register
 #define DEVICESDET  ((unsigned char *)0x00E7) // pointer to detected devices
                                               // flags
-#define UARTRXINPT  ((unsigned char *)0x00F2) // ptr to beg. or UART RX queue
+#define UARTRXINPT  ((unsigned char *)0x00F2) // ptr to beg. of UART RX queue
 #define UARTRXOUTPT ((unsigned char *)0x00F3) // ptr to end of UART RX queue
 
 // masking flags and their complements
@@ -108,6 +108,33 @@
  * concern. When compiled, the call to function is more compact than above
  * macro expression. The performance may be better with the macro though.
  * (performance claim not verified)
+ * 4/5/2018 - This has been discovered yesterday, a bug? a racing
+ *            effect? : In program floader.c, when I used kbhit() function,
+ *            kbhit() would return incorrect value and program would fail.
+ *            I replaced calls to kbhit() with the above macro and the problem
+ *            is gone. Something I need to investigate.
+ *            STATUS:
+ *            I think I know what the problem is. The macro simply compares
+ *            pointers to the beginning and end of the input queue.
+ *            Returns a boolean result.
+ *            However kbhit(), after comparing the pointers, if they're not
+ *            equal (meaning queue not empty), returns the value of the
+ *            character in the queue.
+ *            This will work for character input, however program 'floader'
+ *            loads a binary data stream. Therefore zero values are expected
+ *            in input. Case closed.
+ *            Two solutions:
+ *            1) Use KBHIT macro in case of binary input where null values are
+ *               expected.
+ *              OR (more proper)
+ *            2) Modify function kbhit() in the firmware to return a result of
+ *               boolean comparison and not a value of the character.
+ *               Going with this will require review of all the source code
+ *               and correcting all the places where value returned by kbhit()
+ *               may be used as an input character value and replace these
+ *               cases with getting the actual character with getc() function
+ *               if kbhit() returns a non-zero result.
+ *
  */
 #define RTCDETECTED (*DEVICESDET & DEVPRESENT_RTC) // true if RTC chip was
                                                    // detected by MOS

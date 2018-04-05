@@ -1751,6 +1751,13 @@ RomGetCh:
 ; Return 0 in Acc if not, return character in Acc if there is one.
 ; Do not update / modify input queue. (character will be still waiting to be
 ; read with GetCh.)
+; TODO:
+;    Fix a bug:
+;    Function should always return a non-zero value in Acc if a value in
+;    UartRxOutPt register does not equal value in UartRxInPt register.
+;    Currently, function will return the value of the character in the queue
+;    in case the queue is not empty and that value may be 0 in case of binary
+;    (non-ASCII) data in the input stream.
 ;-------------------------------------------------------------------------------
 
 KbHit:
