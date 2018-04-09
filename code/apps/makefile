@@ -86,6 +86,6 @@ chess: microchess.asm microchess.cfg
 
 floader: floader.c himem.cfg
 	cl65 -t none --cpu 6502 -I ..\system --config himem.cfg -l -o floader -m floader.map floader.c mkhbcos.lib
-	..\bin2hex -f floader -o floader_prg.txt -w 22784 -x 22784 -z
+	..\bin2hex -f floader -o floader_prg.txt -w 22272 -x 22272 -z
 
 all: clean lib hello enhmon clock conv texted tinybasic tinybas022 chess floader

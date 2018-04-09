@@ -38,7 +38,17 @@ int cont;
 /////////////////////////// M A I N    F U N C T I O N //////////////////////
 int main(void)
 {
+    unsigned int i = 0xFFFF;
     cont = 1;
+    if(RTCDETECTED) {
+        tmr64 = *TIMER64HZ + 128;
+        while(tmr64 > *TIMER64HZ) ;
+    } else {
+        for (; i != 0; i--) ;
+    }
+    while (kbhit()) getc(); // flush RX buffer
+    puts("Hit ENTER\n\r");
+    getc();
     //puts("Binary data loader 1.0.0 (C) Marek Karcz'2018.\n\r");
     puts("Address to load (dec): ");
     gets(ibuf1);
@@ -50,7 +60,8 @@ int main(void)
     while(cont) {
         //b = getc();
         puts(utoa(addr, ibuf1, RADIX_HEX));
-        puts("\r");
+        putchar(0x0A);
+        //puts("\r");
         POKE(addr++, getc());
         //putchar('.');
         //addr++;
@@ -58,6 +69,14 @@ int main(void)
             tmr64 = *TIMER64HZ + 128;    // 2 seconds timeout
             while(!KBHIT) {
                 if (tmr64 < *TIMER64HZ) {
+                    cont = 0;
+                    break;
+                }
+            }
+        } else {
+            i=30000;
+            while(!KBHIT && (i--) > 0) {
+                if (i <= 0) {
                     cont = 0;
                     break;
                 }
