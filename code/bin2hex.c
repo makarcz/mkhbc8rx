@@ -138,7 +138,7 @@ void ConvertFile(void)
    FILE *fpo = NULL;
    unsigned char bt[17];
    char hex[80];
-   int i, addr, allzero;
+   int i, addr, allzero, brd;
 
    addr = g_nStartAddr;
    printf("Processing...\n");
@@ -152,13 +152,13 @@ void ConvertFile(void)
 					 memset(bt, 17, sizeof(char));
            memset(hex, 80, sizeof(char));
 					 if (DEBUG) printf("Reading input file...");
-           fread(bt, sizeof(char), 16, fpi);
+           brd = fread(bt, sizeof(char), 16, fpi);
 					 if (DEBUG) printf("done.\n");
            if (g_nAddWriteSt)
                sprintf(hex, "w %s", ToHex(addr));
 					 if (DEBUG) printf("Preparing hex string...\n");
 					 allzero = 1;
-           for(i=0; i<16; i++)
+           for(i=0; i<brd; i++)
            {
 			   		 if (DEBUG) printf("Code: %d\n", bt[i]);
 			   		 sprintf(hex, "%s %s", hex, g_aszHexTbl[bt[i]]);
@@ -185,6 +185,7 @@ void ConvertFile(void)
 		 		 }
          fclose(fpi);
          fclose(fpo);
+         addr = addr - 17 + brd;
 		 		 printf("Done.\n");
 		 		 printf("End address: %s\n", ToHex(addr));
 		 		 printf("Run address: %s\n", ToHex(g_nExecAddr));

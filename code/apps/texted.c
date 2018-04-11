@@ -54,13 +54,13 @@
  *  Some refactoring and small changes.
  *
  * 4/10/2018
- *  Implemented find text function.
+ *  Implemented find text function and date / time.
  *
  *  ..........................................................................
  *  TO DO:
  *  1) Implement remaining functions from original requirements (insert, date
  *     and time, select text, delete selection, copy selection).
- *     STATUS: IN PROGRESS.
+ *     STATUS: DONE.
  *     DETAILS:
  *      Text selection added.
  *      Cut (delete) selection added.
@@ -71,9 +71,9 @@
  *      Search (find) added.
  *      Date / time added.
  *  2) Optimize code for size and speed.
- *     STATUS: IN PROGRESS.
+ *     STATUS: DONE.
  *  3) Add search function.
- *     STATUS: DONE. Needs testing.
+ *     STATUS: DONE.
  *  ..........................................................................
  *  BUGS:
  *
@@ -94,16 +94,16 @@
 //#define DBG2
 //#define DBG3
 
-#define IBUF1_SIZE      16
-#define IBUF2_SIZE      16
-#define IBUF3_SIZE      16
+#define IBUF1_SIZE      20
+#define IBUF2_SIZE      20
+#define IBUF3_SIZE      20
 #define PROMPTBUF_SIZE  80
 #define TEXTLINE_SIZE   80
 #define RADIX_DEC       10
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
-#define CLIPBRDBUF_SIZE 1024*3
+#define CLIPBRDBUF_SIZE 1024*4
 
 enum cmdcodes
 {
@@ -139,6 +139,7 @@ enum eErrors {
     ERROR_TIMEOUT,
     ERROR_CLIPBRDOVF,
     ERROR_EMPTYCLIPBRD,
+    ERROR_END,
     ERROR_UNKNOWN
 };
 
@@ -148,7 +149,7 @@ const int ver_minor = 3;
 const int ver_build = 0;
 */
 
-const char *ver = "1.3.0.\n\r";
+const char *ver = "1.3.2.\n\r";
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -165,18 +166,19 @@ const char *commspc = ", ";
 
 const char *daysofweek[8] =
 {
-    "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+    "Sunday", "Monday", "Tuesday",
+    "Wednesday", "Thursday", "Friday", "Saturday"
 };
 
 const char *monthnames[13] =
 {
-    "Jan", "Feb", "Mar",
-    "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep",
-    "Oct", "Nov", "Dec"
+    "January", "February", "March",
+    "April", "May", "June",
+    "July", "August", "September",
+    "October", "November", "December"
 };
 
-const char *ga_errmsg[13] =
+const char *ga_errmsg[14] =
 {
     "OK.",
     "Unknown command.",
@@ -189,6 +191,7 @@ const char *ga_errmsg[13] =
     "Timeout during text buffer search operation.",
     "Clipboard buffer overflow.",
     "Clipboard is empty.",
+    "Search reached the end of text.",
     "Unknown."
 };
 
@@ -227,12 +230,12 @@ const char *helptext[42] =
     "     Free memory in current buffer.\n\r",
     " f : find a text, search starts in next line from current.\n\r",
     "     Move cursor to the line of occurrence if found.\n\r",
-    "     f <text>\n\r",
+    "     f [text]\n\r",
     "NOTE:\n\r",
     "   Default line#, from_line#, to_line# is the current line.\n\r",
     "   Arguments are <mandatory> OR [optional].\n\r",
     "   When range is provided, SPACE can be used instead of '-'.\n\r",
-    "   Argument <text> can contain spaces.\n\r",
+    "   Argument 'text' can contain spaces.\n\r",
     "\n\r",
     "@EOH"
 };
@@ -259,7 +262,6 @@ unsigned long tmr64;
 void        getline(void);
 void        parse_cmd(void);
 void        texted_help(void);
-void        texted_version(void);
 void        texted_shell(void);
 void        texted_banner(void);
 void        prnerror(int errnum);
@@ -311,14 +313,20 @@ void texted_insdttm(void)
         } else {
             strcpy(CurrLine.text, unk3q);
         }
+
         strcat(CurrLine.text, commspc);
-        strcat(CurrLine.text, itoa(clkdata.date, ibuf3, RADIX_DEC));
-        strcat(CurrLine.text, spcchr);
+
         if (clkdata.month > 0 && clkdata.month < 13)
             strcat(CurrLine.text, monthnames[clkdata.month-1]);
         else
             strcat(CurrLine.text, unk3q);
+
         strcat(CurrLine.text, spcchr);
+
+        strcat(CurrLine.text, itoa(clkdata.date, ibuf3, RADIX_DEC));
+
+        strcat(CurrLine.text, commspc);
+
         if (clkdata.century < 100)
             strcat(CurrLine.text, itoa(clkdata.century, ibuf3, RADIX_DEC));
         else
@@ -332,7 +340,8 @@ void texted_insdttm(void)
         else
             strcat(CurrLine.text, unk2q);
 
-        strcat(CurrLine.text, zerochr);
+        strcat(CurrLine.text, commspc);
+        strcat(CurrLine.text, "at ");
 
         if (clkdata.hours < 10)
             strcat(CurrLine.text, zerochr);
@@ -341,10 +350,6 @@ void texted_insdttm(void)
         if (clkdata.minutes < 10)
             strcat(CurrLine.text, zerochr);
         strcat(CurrLine.text, itoa(clkdata.minutes, ibuf3, RADIX_DEC));
-        strcat(CurrLine.text, spcolosp);
-        if (clkdata.seconds < 10)
-            strcat(CurrLine.text, zerochr);
-        strcat(CurrLine.text, itoa(clkdata.seconds, ibuf3, RADIX_DEC));
 
         CurrLine.num = line_num;
         CurrLine.len = strlen(CurrLine.text);
@@ -690,20 +695,6 @@ void texted_help(void)
     }
 }
 
-void texted_version(void)
-{
-    /*
-    strcpy(ibuf1, itoa(ver_major, ibuf3, RADIX_DEC));
-    strcat(ibuf1, ".");
-    strcat(ibuf1, itoa(ver_minor, ibuf3, RADIX_DEC));
-    strcat(ibuf1, ".");
-    strcat(ibuf1, itoa(ver_build, ibuf3, RADIX_DEC));
-    strcat(ibuf1, ".\n\r");
-    puts(ibuf1);
-    */
-    puts(ver);
-}
-
 /*
  * Execute command.
  */
@@ -1019,16 +1010,18 @@ void texted_copy(void)
 /*
  * Find text in buffer.
  * Command is expected in prompt_buf before calling this function:
- * "f <text>"
+ * "f [text]"
  * Search starts in the next line from current line.
  * Search ends when 1-st occurrence is found.
  * Cursor / current line is changed to the line where the text was found.
+ * If end is reached, message is printed.
+ * If no argument is provided, previous one (if valid) is used.
  * With this implementation, each next search will find the next occurrences
  * with minimum use of memory.
  */
 void texted_find(void)
 {
-    unsigned int line = 0;
+    unsigned int line = line_num + 1;   // start search in next line
     uint16_t nxt_line;
     int n;
     char *tptr;
@@ -1036,16 +1029,21 @@ void texted_find(void)
     if (0 == checkbuf()) {
         return;
     }
-    if (strlen(prompt_buf) < 3) {
-        prnerror(ERROR_BADARG);
-        return;
+    // if there is argument, new search string is provided by user
+    // otherwise search for one used previously
+    if (strlen(prompt_buf) > 2) {
+        memset(CurrLine.text, 0, TEXTLINE_SIZE);
+        n = adv2nxttoken(1);
+        strcpy(CurrLine.text, prompt_buf + n);
     }
-    memset(CurrLine.text, 0, TEXTLINE_SIZE);
-    n = adv2nxttoken(1);
-    strcpy(CurrLine.text, prompt_buf + n);
+    // sanity check
     CurrLine.len = strlen(CurrLine.text);
     if (0 == CurrLine.len) {
         prnerror(ERROR_BADARG);
+        return;
+    }
+    if (line > last_line) {
+        prnerror(ERROR_END);    // search reached end of text buffer
         return;
     }
     n = 0;
@@ -1054,23 +1052,25 @@ void texted_find(void)
         puts(utoa(line, ibuf1, RADIX_DEC));
         putchar(0x0A);
         nxt_line = goto_line(line);
-        tptr = (char *) PEEKW(curr_addr + 5);
-        while(*tptr++ != 0) {
-            if (strncmp(tptr, CurrLine.text, CurrLine.len)) {
+        tptr = (char *) (curr_addr + 5);
+        while(*tptr != 0) {
+            if (0 == strncmp(tptr, CurrLine.text, CurrLine.len)) {
                 n = 1;
                 break; // found text, current line already set
             }
-            //tptr++;
+            tptr++;
         }
         if (0 != n || 0xFFFF == nxt_line) {
             break;  // no more text to search
         }
-        line++;
+        line = nxt_line;
     }
     if (n) {
         puts("* Found *\n\r");
-    } else {
+        puts((const char *)(curr_addr + 5));
         puts("\n\r");
+    } else {
+        puts("* Not found *  \n\r");
     }
 }
 
@@ -1236,7 +1236,8 @@ void texted_list(void)
 uint16_t goto_line(unsigned int gtl)
 {
     unsigned int line_to = gtl;
-    uint16_t addr = START_BRAM, ret = 0;
+    uint16_t addr = START_BRAM;
+    uint16_t ret = 0;
     unsigned int line;
     uint16_t nxtaddr;
 
@@ -1253,7 +1254,6 @@ uint16_t goto_line(unsigned int gtl)
         puts ("\n\r");
 #endif
         nxtaddr = PEEKW(addr + 3);
-        ret = PEEKW(nxtaddr);
         if (line == line_to
             ||
             isnull_hdr((const char *)nxtaddr)) {
@@ -1270,6 +1270,7 @@ uint16_t goto_line(unsigned int gtl)
             puts (ibuf2);
             puts ("\n\r");
 #endif
+            ret = PEEKW(nxtaddr);
             break;
         }
         addr = nxtaddr;
@@ -1597,7 +1598,7 @@ void texted_banner(void)
     //memset(prompt_buf,0,PROMPTBUF_SIZE);
     puts("\n\r");
     puts("Welcome to Text Editor ");
-    texted_version();
+    puts(ver);
     puts("(C) Marek Karcz 2012-2018. All rights reserved.\n\r");
     puts("Type 'h' for guide.\n\r\n\r");
 }
