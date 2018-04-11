@@ -56,24 +56,15 @@
  * 4/10/2018
  *  Implemented find text function and date / time.
  *
+ * 4/11/2018
+ *  Removed debug code.
+ *  Changed renumber function to be more flexible.
+ *  Optimized delete_text() function.
+ *  Added assert() function.
+ *
  *  ..........................................................................
  *  TO DO:
- *  1) Implement remaining functions from original requirements (insert, date
- *     and time, select text, delete selection, copy selection).
- *     STATUS: DONE.
- *     DETAILS:
- *      Text selection added.
- *      Cut (delete) selection added.
- *      Function checkbuf() added which validates text buffer and adjusts
- *      global variables / flags.
- *      Insert function added.
- *      Copy selection added.
- *      Search (find) added.
- *      Date / time added.
- *  2) Optimize code for size and speed.
- *     STATUS: DONE.
- *  3) Add search function.
- *     STATUS: DONE.
+ *
  *  ..........................................................................
  *  BUGS:
  *
@@ -89,11 +80,6 @@
 #include "mkhbcos_ds1685.h"
 #include "romlib.h"
 
-// Uncomment line(s) below to compile extra debug code.
-//#define DEBUG
-//#define DBG2
-//#define DBG3
-
 #define IBUF1_SIZE      20
 #define IBUF2_SIZE      20
 #define IBUF3_SIZE      20
@@ -105,6 +91,7 @@
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
 #define CLIPBRDBUF_SIZE 1024*4
 
+// command codes
 enum cmdcodes
 {
     CMD_NULL = 0,
@@ -127,35 +114,16 @@ enum cmdcodes
 	CMD_UNKNOWN
 };
 
-enum eErrors {
-    ERROR_OK = 0,
-    ERROR_BADCMD,
-    ERROR_FULLBUF,
-    ERROR_BADARG,
-    ERROR_NTD,
-    ERROR_NOTEXT,
-    ERROR_BUFNOTINIT,
-    ERROR_ADDROOR,
-    ERROR_TIMEOUT,
-    ERROR_CLIPBRDOVF,
-    ERROR_EMPTYCLIPBRD,
-    ERROR_END,
-    ERROR_UNKNOWN
-};
-
-/*
-const int ver_major = 1;
-const int ver_minor = 3;
-const int ver_build = 0;
-*/
-
-const char *ver = "1.3.2.\n\r";
+const char *ver = "1.3.3.\n\r";
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
 const char null_txt_hdr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
 // this string is entered by operator to end text adding / insertion
 const char *eot_str = "@EOT";
+
+// some other commonly used constants, defining them here and using pointers
+// saves some code space
 const char *divider = "--------------------------------------------\n\r";
 const char *unk3q = "???";
 const char *unk2q = "??";
@@ -164,27 +132,60 @@ const char *zerochr = "0";
 const char *spcchr = " ";
 const char *commspc = ", ";
 
+// Calendar constants.
 const char *daysofweek[8] =
 {
-    "Sunday", "Monday", "Tuesday",
-    "Wednesday", "Thursday", "Friday", "Saturday"
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
 };
 
 const char *monthnames[13] =
 {
-    "January", "February", "March",
-    "April", "May", "June",
-    "July", "August", "September",
-    "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
 };
 
-const char *ga_errmsg[14] =
+// error codes
+enum eErrors {
+    ERROR_OK = 0,
+    ERROR_BADCMD,
+    ERROR_FULLBUF,
+    ERROR_BADARG,
+    //ERROR_NTD,
+    ERROR_NOTEXT,
+    ERROR_BUFNOTINIT,
+    ERROR_ADDROOR,
+    ERROR_TIMEOUT,
+    ERROR_CLIPBRDOVF,
+    ERROR_EMPTYCLIPBRD,
+    ERROR_END,
+    //------------------
+    ERROR_UNKNOWN
+};
+
+// Error messages.
+const char *ga_errmsg[13] =
 {
     "OK.",
     "Unknown command.",
     "Buffer full. Enter @EOT to exit to prompt.",
     "Check arguments.",
-    "Nothing to delete.",
+    //"Nothing to delete.",
     "No text in buffer.",
     "Buffer was never initialized.",
     "Address out of range.",
@@ -195,7 +196,8 @@ const char *ga_errmsg[14] =
     "Unknown."
 };
 
-const char *helptext[42] =
+// Usage help.
+const char *helptext[43] =
 {
     "\n\r",
     " b : select / show current file # (bank #).\n\r",
@@ -214,9 +216,9 @@ const char *helptext[42] =
     " g : go to specified line in text buffer.\n\r",
     "     g start | end | [line#]\n\r",
     " d : delete text.\n\r",
-    "     d [from_line#[-to_line#]]\n\r",
+    "     d [from_line#[-to_line# | -end]]\n\r",
     " s : select text. (copies to clipboard)\n\r",
-    "     s [from_line#[-to_line#]]\n\r",
+    "     s [from_line#[-to_line# | -end]]\n\r",
     " c : delete (cut) selection.\n\r",
     " p : copy selected text.\n\r",
     "     p [line#]\n\r",
@@ -236,10 +238,12 @@ const char *helptext[42] =
     "   Arguments are <mandatory> OR [optional].\n\r",
     "   When range is provided, SPACE can be used instead of '-'.\n\r",
     "   Argument 'text' can contain spaces.\n\r",
+    "   Aliases: 'start' - 1-st line of text, 'end' - last line of text.\n\r",
     "\n\r",
     "@EOH"
 };
 
+// Buffer for current text record.
 struct text_line {
     unsigned int num;
     unsigned char len;
@@ -247,8 +251,10 @@ struct text_line {
     char text[TEXTLINE_SIZE];
 } CurrLine;
 
+// RTC data buffer.
 struct ds1685_clkdata	clkdata;
 
+// globals
 int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
@@ -259,6 +265,7 @@ uint16_t curr_addr, lastaddr;
 int bank_num;
 unsigned long tmr64;
 
+// Functions prototypes.
 void        getline(void);
 void        parse_cmd(void);
 void        texted_help(void);
@@ -290,14 +297,31 @@ int         is_timeout(void);
 void        write_text2mem(uint16_t addr);
 int         copy2clipbrd(unsigned int from_line, unsigned int to_line);
 void        texted_copy(void);
-uint16_t    renumber(uint16_t addr);
+uint16_t    renumber(uint16_t addr, int offs);
 void        list_clipbrd(void);
 void        texted_find(void);
 void        texted_insdttm(void);
+void        assert(uint16_t line, int cond);
 
+////////////////////////////// CODE /////////////////////////////////////
+
+/*
+ * If the condition evaluates to zero (false), prints a message and aborts
+ * the program.
+ */
+void assert(uint16_t line, int cond)
+{
+    if (!cond) {
+        puts("\n\rASSERT in line ");
+        puts(utoa(line, ibuf1, RADIX_DEC));
+        puts(". Program aborted.\n\r");
+        exit(0);
+    }
+}
 
 /*
  * Read date/time from DS1685 IC and insert it into current line.
+ * Format: "DayOfWeek, Month Day, Year, at hh : mm"
  */
 void texted_insdttm(void)
 {
@@ -373,7 +397,7 @@ void texted_insdttm(void)
                 // 2. Insert newly entered line
                 write_text2mem(curr_addr);
                 // 3. Renumber following lines
-                renumber(CurrLine.next_ptr);
+                renumber(CurrLine.next_ptr, 1);
             } else {
                 // buffer full, end here
                 prnerror(ERROR_FULLBUF);
@@ -439,13 +463,6 @@ int copy2clipbrd(unsigned int from_line, unsigned int to_line)
                 *(clipbrd + clipbrd_index) = 0;
                 strcpy((char *)(clipbrd + clipbrd_index),
                        (const char *)(addr + 5));
-#ifdef DBG3
-                puts("DBG3(copy2clipbrd): Copied to clipboard [");
-                puts(itoa(clipbrd_index, ibuf1, RADIX_DEC));
-                puts("]:\n\r");
-                puts((const char *)(clipbrd + clipbrd_index));
-                puts("\n\r");
-#endif
                 clipbrd_index += (llen + 1);
                 // put null header at the end
                 strcpy((char *)(clipbrd + clipbrd_index), null_txt_hdr);
@@ -460,12 +477,6 @@ int copy2clipbrd(unsigned int from_line, unsigned int to_line)
             break;  // address out of range
         }
     }
-
-#ifdef DBG3
-    puts("\n\rDBG3(copy2clipbrd): Copied ");
-    puts(utoa(ret, ibuf1, RADIX_DEC));
-    puts(" lines to the clipboard.\n\r");
-#endif
 
     return ret;
 }
@@ -489,11 +500,10 @@ int isaddr_oor(uint16_t addr)
     if (addr < START_BRAM || addr >= END_BRAM)
     {
         prnerror(ERROR_ADDROOR);
-        /*
         puts("addr = $");
         puts(utoa(addr, ibuf1, RADIX_HEX));
         puts("\n\r");
-        */
+
         return 1;
     }
 
@@ -797,12 +807,6 @@ void texted_add(void)
         strcpy (CurrLine.text, prompt_buf);
         CurrLine.len = strlen(prompt_buf);
         CurrLine.next_ptr = curr_addr + CurrLine.len + 6;
-#ifdef DEBUG
-        itoa(CurrLine.next_ptr, ibuf1, RADIX_HEX);
-        puts ("DBG: next_ptr = ");
-        puts (ibuf1);
-        puts ("\n\r");
-#endif
         if (CurrLine.next_ptr > (END_BRAM - 6)) {
             // Text buffer full, terminate text entry here.
             // User must still enter '@EOT' to exit loop.
@@ -833,12 +837,12 @@ void texted_add(void)
 }
 
 /*
- * Renumber line numbers in text records (increment) starting at address addr.
+ * Renumber line numbers in text records starting at address addr.
  * Also, refresh the next record pointers in these text records as this
  * function is called after the text has been relocated in buffer.
  * Return address where the renumbering ended.
  */
-uint16_t renumber(uint16_t addr)
+uint16_t renumber(uint16_t addr, int offs)
 {
     unsigned int lnum;
     uint16_t nxtaddr;
@@ -847,7 +851,7 @@ uint16_t renumber(uint16_t addr)
         if (isnull_hdr((const char *)addr)) {
             break;
         }
-        lnum = PEEKW(addr) + 1;
+        lnum = PEEKW(addr) + offs;
         POKEW(addr, lnum);
         nxtaddr = addr + PEEK(addr + 2) + 6;
         if (isaddr_oor(nxtaddr)) {
@@ -914,7 +918,7 @@ void texted_insert(void)
                 write_text2mem(curr_addr);
                 // 3. Renumber following lines
                 addr = CurrLine.next_ptr;
-                addr = renumber(addr);
+                addr = renumber(addr, 1);
                 line_num++;
                 checkbuf();
             } else {
@@ -994,7 +998,7 @@ void texted_copy(void)
             if (adding) {
                 strcpy((char *)addr, null_txt_hdr); // write null header
             } else {
-                addr = renumber(addr);
+                addr = renumber(addr, 1);
             }
             lastaddr = addr + strlen(null_txt_hdr);
             line_num++;
@@ -1104,9 +1108,7 @@ void texted_list(void)
             return;
 
         } else if (0 == strncmp(prompt_buf + n0, "sel", 3)) {
-#ifdef DEBUG
-            puts("DBG(texted_list): List selected content.\n\r");
-#endif
+
             n = adv2nxttoken(n);
             n0 = adv2nextspc(n);
             show_num = (prompt_buf[n] == 'n');
@@ -1136,21 +1138,13 @@ void texted_list(void)
                 }
             }
         } else {    // list all content
-#ifdef DEBUG
-            puts("DBG(texted_list): List all content.\n\r");
-#endif
+
             n = adv2nxttoken(n);
             n0 = adv2nextspc(n);
             show_num = (prompt_buf[n] == 'n');
             from_line = 0;
             while (1) {
                 if (isnull_hdr((const char *)addr)) {
-#ifdef DEBUG
-                puts("DBG(texted_list): Found null header at ");
-                itoa(addr, ibuf1, RADIX_HEX);
-                puts (ibuf1);
-                puts (".\n\r");
-#endif
                     break;  // found last line
                 }
                 to_line = PEEKW(addr);
@@ -1158,55 +1152,20 @@ void texted_list(void)
                 if (isaddr_oor(addr)) {
                     return;
                 }
-#ifdef DEBUG
-                itoa(to_line, ibuf1, RADIX_DEC);
-                itoa(addr, ibuf2, RADIX_HEX);
-                puts ("DBG(texted_list): to_line = ");
-                puts (ibuf1);
-                puts (", addr = $");
-                puts (ibuf2);
-                puts ("\n\r");
-#endif
             }
             addr = START_BRAM;
         }
     }
-#ifdef DEBUG
-    itoa(from_line, ibuf1, RADIX_DEC);
-    itoa(to_line, ibuf2, RADIX_DEC);
-    puts ("DBG(texted_list): from_line = ");
-    puts (ibuf1);
-    puts (", ");
-    puts ("to_line = ");
-    puts (ibuf2);
-    puts ("\n\r");
-#endif
     if (isnull_hdr((const char *)START_BRAM)) {
         prnerror(ERROR_NOTEXT);
         return;
     }
-    //puts ("a\n\r");
+
     while (1) {
         if (isnull_hdr((const char *)addr)) {
-#ifdef DEBUG
-            puts("DBG(texted_list): Found null header at ");
-            itoa(addr, ibuf1, RADIX_HEX);
-            puts (ibuf1);
-            puts (".\n\r");
-#endif
             break; // EOT, null text header is next
         }
         line = PEEKW(addr);
-#ifdef DEBUG
-        itoa(line, ibuf1, RADIX_DEC);
-        itoa(addr, ibuf2, RADIX_HEX);
-        puts ("DBG(texted_list): line = ");
-        puts (ibuf1);
-        puts (", ");
-        puts ("addr = $");
-        puts (ibuf2);
-        puts (".\n\r");
-#endif
         if (line > to_line) {
             break;
         }
@@ -1226,7 +1185,6 @@ void texted_list(void)
     }
     pause_sec64(150);   // just a bit more than 2 seconds delay to allow
                         // PropTermMK to time out in SaveOutput2FileSD.
-    //puts("@EOT\n\r");
 }
 
 /*
@@ -1243,16 +1201,6 @@ uint16_t goto_line(unsigned int gtl)
 
     while (1) {
         line = PEEKW(addr);
-#ifdef DEBUG
-        itoa(line, ibuf1, RADIX_DEC);
-        itoa(addr, ibuf2, RADIX_HEX);
-        puts ("DBG(goto_line): line = ");
-        puts (ibuf1);
-        puts (", ");
-        puts ("addr = $");
-        puts (ibuf2);
-        puts ("\n\r");
-#endif
         nxtaddr = PEEKW(addr + 3);
         if (line == line_to
             ||
@@ -1260,16 +1208,6 @@ uint16_t goto_line(unsigned int gtl)
 
             line_num = line;
             curr_addr = addr;
-#ifdef DEBUG
-            itoa(line_num, ibuf1, RADIX_DEC);
-            itoa(addr, ibuf2, RADIX_HEX);
-            puts ("DBG(goto_line): line_num = ");
-            puts (ibuf1);
-            puts (", ");
-            puts ("addr = $");
-            puts (ibuf2);
-            puts ("\n\r");
-#endif
             ret = PEEKW(nxtaddr);
             break;
         }
@@ -1346,30 +1284,25 @@ void texted_delete(void)
     if (strlen(prompt_buf) > 2) {
         n1 = adv2nxttoken(2);
         n2 = adv2nextspc(n1);
-        from_line = atoi(prompt_buf + n1);
-        n1 = adv2nxttoken(n2);
-        n2 = adv2nextspc(n1);
         if (n2 > n1) {
-            to_line = atoi(prompt_buf + n1);
-        } else {
-            to_line = from_line; // only one argument supplied
+            from_line = atoi(prompt_buf + n1);
+            n1 = adv2nxttoken(n2);
+            n2 = adv2nextspc(n1);
+            if (n2 > n1) {
+                if (0 == strncmp((const char *)(prompt_buf + n1), "end", 3)) {
+                    to_line = last_line;
+                } else {
+                    to_line = atoi(prompt_buf + n1);
+                }
+            } else {
+                to_line = from_line; // only one argument supplied
+            }
         }
     }
-    if (from_line > to_line) {
+    if (from_line > to_line || from_line > last_line || to_line > last_line) {
         prnerror (ERROR_BADARG);
         return;
     }
-    //n1 = to_line - from_line + 1;   // number of lines to delete
-#ifdef DEBUG
-    itoa(from_line, ibuf1, RADIX_DEC);
-    itoa(to_line, ibuf2, RADIX_DEC);
-    puts ("DBG(texted_delete): from_line = ");
-    puts (ibuf1);
-    puts (", ");
-    puts ("to_line = ");
-    puts (ibuf2);
-    puts ("\n\r");
-#endif
     delete_text(from_line, to_line);
     checkbuf(); // update globals after text buffer was altered
 }
@@ -1380,109 +1313,29 @@ void texted_delete(void)
 void delete_text(unsigned int from_line, unsigned int to_line)
 {
     uint16_t addr = START_BRAM;
-    uint16_t nxtaddr, tmpaddr, endaddr;
-    unsigned int line;
-    int n2;
+    uint16_t tmpaddr, endaddr;
 
     // the actual delete procedure
     // 1. Go to the from_line position.
-    addr = START_BRAM;
-    while (1) {
-        line = PEEKW(addr);
-        nxtaddr = PEEKW(addr + 3);
-        if (line == from_line) {
-            break;  // found it
-        }
-        if (isnull_hdr((const char *)nxtaddr)) {
-            // something is wrong, from_line is not found
-            prnerror (ERROR_BADARG);
-            return;
-        }
-        addr = nxtaddr;
-        if (isaddr_oor(addr)) {
-            return;
-        }
-    }
-    tmpaddr = addr; // remember current addr - we shift up to this addr
-    // 2. Find address of the next line after to_line.
-    while (1) {
-        line = PEEKW(addr);
-        nxtaddr = PEEKW(addr + 3);
-        endaddr = nxtaddr;
-        if (line == to_line) {
-            break;
-        }
-        if (isnull_hdr((const char *)nxtaddr)) {
-            break; // end of text
-        }
-        addr = nxtaddr;
-        if (isaddr_oor(addr)) {
-            return;
-        }
-    }
-#ifdef DEBUG
-    itoa(tmpaddr, ibuf1, RADIX_HEX);
-    itoa(endaddr, ibuf2, RADIX_HEX);
-    itoa(lastaddr, ibuf3, RADIX_HEX);
-    puts ("DBG(delete_text): tmpaddr (begin) = $");
-    puts (ibuf1);
-    puts (", ");
-    puts ("endaddr = $");
-    puts (ibuf2);
-    puts (", ");
-    puts ("lastaddr = $");
-    puts (ibuf3);
-    puts ("\n\r");
-#endif
-    if (lastaddr <= endaddr) {
-        // nothing to  delete
-        prnerror(ERROR_NTD);
+    if (to_line < from_line || 0xFFFF == goto_line(from_line)) {
+        // something is wrong, from_line is not found
+        prnerror (ERROR_BADARG);
         return;
     }
+    tmpaddr = curr_addr; // remember current addr - we shift up to this addr
+    // 2. Find address of the next line after to_line.
+    goto_line(to_line);
+    endaddr = PEEKW(curr_addr + 3);
+    assert(__LINE__, (endaddr <= lastaddr));
     // 3. Delete lines from_line .. to_line by moving text up in the buffer.
     memmove((void *)tmpaddr, (void *)endaddr,
             lastaddr - endaddr + strlen(null_txt_hdr));
     // renumerate lines and change pointer to next line in each
     addr = tmpaddr;
     lastaddr = lastaddr - (endaddr - tmpaddr);  // last address is now closer
-    while (1) {
-        if (isnull_hdr((const char *)addr)) {
-            // reached the null header, leave it in place and break
-#ifdef DEBUG
-            itoa(addr, ibuf1, RADIX_HEX);
-            puts ("DBG(delete_text): Renumbering, found null header at ");
-            puts (ibuf1);
-            puts (".\n\r");
-#endif
-            break;
-        }
-        line = PEEKW(addr);
-        // line# = line# - #-of-deleted-lines (lines were shifted up)
-        POKEW(addr, line - (to_line - from_line + 1));
-        n2 = PEEK(addr + 2);    // get length of the text in current line
-        nxtaddr = addr + n2 + 6; // calculate new pointer to next line
-        POKEW(addr + 3, nxtaddr);   // store new pointer to next line
-        if (nxtaddr >= lastaddr) {
-            // reached the end, we're done, store null header and break
-            // NOTE:
-            // this should not happen as the first null header compare test
-            // above should have caugt this - addresses seem to be out of
-            // alignment
-            strcpy((char *)nxtaddr, null_txt_hdr);
-#ifdef DEBUG
-            itoa(addr, ibuf1, RADIX_HEX);
-            puts ("DBG(delete_text): WARNING!!! Renumbering, found null header at ");
-            puts (ibuf1);
-            puts (".\n\r");
-            puts ("DBG(delete_text): Addresses may be out of alignment.\n\r");
-            puts ("DBG(delete_text): Check your algorithm!\n\r");
-#endif
-            break;
-        }
-        addr = nxtaddr;             // do the next line
-        if (isaddr_oor(addr)) {
-            return;
-        }
+    addr = renumber(addr, (from_line - to_line - 1));
+    if (addr >= lastaddr && 0 == isaddr_oor(addr)) {
+        strcpy((char *)addr, null_txt_hdr);
     }
 }
 
@@ -1511,45 +1364,25 @@ void texted_select(void)
         n1 = adv2nextspc(n0);
         if (n1 > n0) {
             from_line = atoi(prompt_buf + n0);
-        }
-        n0 = adv2nxttoken(n1);
-        n1 = adv2nextspc(n0);
-        if (n1 > n0) {
-#ifdef DEBUG
-            puts("DBG(texted_select): 2-nd argument detected.\n\r");
-#endif
-            to_line = atoi(prompt_buf + n0);
-        } else {
-            to_line = from_line;
+            n0 = adv2nxttoken(n1);
+            n1 = adv2nextspc(n0);
+            if (n1 > n0) {
+                if (0 == strncmp((const char *)(prompt_buf + n0), "end", 3)) {
+                    to_line = last_line;
+                } else {
+                    to_line = atoi(prompt_buf + n0);
+                }
+            } else {
+                to_line = from_line;
+            }
         }
     }
-#ifdef DEBUG
-    itoa(from_line, ibuf1, RADIX_DEC);
-    itoa(to_line, ibuf2, RADIX_DEC);
-    itoa(last_line, ibuf3, RADIX_DEC);
-    puts("DBG(texted_select): from_line: ");
-    puts(ibuf1);
-    puts(", to_line: ");
-    puts(ibuf2);
-    puts(", last_line: ");
-    puts(ibuf3);
-    puts("\n\r");
-#endif
     if (from_line > last_line || to_line > last_line || to_line < from_line) {
         prnerror(ERROR_BADARG);
         return;
     }
     sel_begin = from_line;
     sel_end = to_line;
-#ifdef DEBUG
-    itoa(sel_begin, ibuf1, RADIX_DEC);
-    itoa(sel_end, ibuf2, RADIX_DEC);
-    puts("DBG(texted_select): begin: ");
-    puts(ibuf1);
-    puts(", end: ");
-    puts(ibuf2);
-    puts("\n\r");
-#endif
     copy2clipbrd(sel_begin, sel_end);
 }
 
@@ -1595,7 +1428,6 @@ void texted_banner(void)
 {
     pause_sec64(128);
     while (kbhit()) getc(); // flush RX buffer
-    //memset(prompt_buf,0,PROMPTBUF_SIZE);
     puts("\n\r");
     puts("Welcome to Text Editor ");
     puts(ver);
@@ -1678,16 +1510,6 @@ void texted_info(void)
     puts(utoa((unsigned int)sel_end, ibuf1, RADIX_DEC));
     puts("\n\r");
     puts(divider);
-#ifdef DBG2
-    puts("DBG2(texted_info): START_BRAM = $");
-    puts(utoa((unsigned int)START_BRAM, ibuf1, RADIX_HEX));
-    puts(", END_BRAM = $");
-    puts(utoa((unsigned int)END_BRAM, ibuf1, RADIX_HEX));
-    puts("\n\r");
-    puts("DBG2(texted_info): MAX_LINES = ");
-    puts(utoa((unsigned int)MAX_LINES, ibuf1, RADIX_DEC));
-    puts("\n\r");
-#endif
 }
 
 /*
@@ -1708,9 +1530,6 @@ int checkbuf(void)
         // Several protective measures applied to prevent this loop from
         // looping forever.
         puts("Text buffer sanity check ... ");
-#ifdef DBG2
-        puts("\n\r");
-#endif
         set_timeout(30); // 30 seconds timeout
         while (lcount > 0 && 0 == is_timeout()) {
 
@@ -1724,16 +1543,6 @@ int checkbuf(void)
            }
            lcount--;
         }
-#ifdef DBG2
-        puts("DBG2(checkbuf): tmr64 = ");
-        puts(ltoa((long)tmr64, ibuf1, RADIX_DEC));
-        puts(", *TIMER64HZ = ");
-        puts(ltoa((long)(*TIMER64HZ), ibuf1, RADIX_DEC));
-        puts("\n\r");
-        puts("DBG2(checkbuf): lcount = ");
-        puts(utoa((unsigned int)lcount, ibuf1, RADIX_DEC));
-        puts("\n\r");
-#endif
         puts("done.\n\r");
     } else {
         ret = 1;
@@ -1748,11 +1557,6 @@ int checkbuf(void)
         lcount = MAX_LINES;
         while (lcount > 0 && 0 == is_timeout()) {
             if (isnull_hdr((const char *)addr)) {
-#ifdef DBG2
-                puts("DBG2(checkbuf): null hdr found, addr = $");
-                puts(utoa((unsigned int)addr, ibuf1, RADIX_HEX));
-                puts("\n\r");
-#endif
                 ret = 1;
                 break;  // found last line
             }
@@ -1764,16 +1568,6 @@ int checkbuf(void)
             line_count++;
             lcount--;
         }
-#ifdef DBG2
-        puts("DBG2(checkbuf): tmr64 = ");
-        puts(ltoa((long)tmr64, ibuf1, RADIX_DEC));
-        puts(", *TIMER64HZ = ");
-        puts(ltoa((long)(*TIMER64HZ), ibuf1, RADIX_DEC));
-        puts("\n\r");
-        puts("DBG2(checkbuf): lcount = ");
-        puts(utoa((unsigned int)lcount, ibuf1, RADIX_DEC));
-        puts("\n\r");
-#endif
         if (ret) {
             lastaddr = addr + strlen(null_txt_hdr);
             if (0 == line_count || sel_begin > last_line || sel_end > last_line) {
@@ -1827,12 +1621,6 @@ int main(void)
     __asm__("jsr %w", MOS_BANKEDRAMSEL);
     //texted_initbuf();
     texted_info();
-    #ifdef DEBUG
-        itoa(curr_addr, ibuf1, RADIX_HEX);
-        puts ("DBG: curr_addr = $");
-        puts (ibuf1);
-        puts ("\n\r");
-    #endif
     texted_shell();
     return 0;
 }
