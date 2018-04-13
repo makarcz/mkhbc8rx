@@ -72,6 +72,13 @@
  *  ..........................................................................
  *  BUGS:
  *
+ *  1) When clipboard size is 4 kB, program malfunctions. I am not sure if this
+ *     is a cc65 issue or bug in my code. Wher I reduce the size to 3 kB all is
+ *     good again. Compilation / linking doesn't warn about any memory segments
+ *     overlapping and I examined carefully listing and map files and found no
+ *     reason for this problem. For now the issue is averted by reducing the
+ *     size of the clipboard buffer.
+ *
  *  ..........................................................................
  */
 
@@ -304,7 +311,6 @@ void        list_clipbrd(void);
 void        texted_find(void);
 void        texted_insdttm(void);
 void        texted_assert(uint16_t line, int cond, const char *msg);
-void        texted_exit(void);
 void        prninfo_addtext(void);
 
 ////////////////////////////// CODE /////////////////////////////////////
@@ -320,22 +326,6 @@ void prninfo_addtext(void)
 }
 
 /*
- * Handle exit.
- */
-void texted_exit(void)
-{
-    memset(prompt_buf, 0, PROMPTBUF_SIZE);
-    strcpy(prompt_buf, "b 00");
-    texted_membank();
-    while (kbhit()) {
-        getc();
-    }
-    pause_sec64(65);
-    __asm__("BRK");
-    __asm__("BRK");
-}
-
-/*
  * If the condition evaluates to zero (false), prints a message and aborts
  * the program.
  */
@@ -348,7 +338,7 @@ void texted_assert(uint16_t line, int cond, const char *msg)
         puts(msg);
         puts("\n\r");
         pause_sec64(65);
-        texted_exit();
+        exit(0);
     }
 }
 
@@ -445,8 +435,8 @@ void texted_insdttm(void)
  */
 void list_clipbrd(void)
 {
-    char *s = clipbrd;
     unsigned int llen;
+    char *s = clipbrd;
 
     set_timeout(5);
     while(0 == is_timeout()) {
@@ -469,10 +459,10 @@ void list_clipbrd(void)
  */
 int copy2clipbrd(unsigned int from_line, unsigned int to_line)
 {
+    unsigned int line, llen;
     uint16_t addr = START_BRAM;
     int clipbrd_index = 0;
     int ret = 0, i = 0;
-    unsigned int line, llen;
 
     // clear the clipboard
     for ( ; i < CLIPBRDBUF_SIZE; i++) {
@@ -910,9 +900,9 @@ uint16_t renumber(uint16_t addr, int offs)
  */
 void texted_insert(void)
 {
-    int n0 = 2;
     int n1;
     uint16_t addr;
+    int n0 = 2;
 
     if (0 == checkbuf()) {
         return;
@@ -978,11 +968,11 @@ void texted_insert(void)
  */
 void texted_copy(void)
 {
+    int n1;
+    uint16_t addr;
     int n0 = 2;
     int clipbrd_index = 0;
     int adding = 0;
-    int n1;
-    uint16_t addr;
 
     if (0 == checkbuf()) {
         return;
@@ -1060,10 +1050,10 @@ void texted_copy(void)
  */
 void texted_find(void)
 {
-    unsigned int line = line_num + 1;   // start search in next line
     uint16_t nxt_line;
     int n;
     char *tptr;
+    unsigned int line = line_num + 1;   // start search in next line
 
     if (0 == checkbuf()) {
         return;
@@ -1120,12 +1110,12 @@ void texted_find(void)
  */
 void texted_list(void)
 {
+    int      n0, n;
     uint16_t from_line = line_num;
     uint16_t to_line = line_num;
     uint16_t addr = START_BRAM;
     uint16_t line = 0;
     int      show_num = 0;
-    int      n0, n;
 
     if (0 == checkbuf()) {
         return;
@@ -1228,11 +1218,11 @@ void texted_list(void)
  */
 uint16_t goto_line(unsigned int gtl)
 {
+    unsigned int line;
+    uint16_t nxtaddr;
     unsigned int line_to = gtl;
     uint16_t addr = START_BRAM;
     uint16_t ret = 0;
-    unsigned int line;
-    uint16_t nxtaddr;
 
     while (1) {
         line = PEEKW(addr);
@@ -1301,9 +1291,9 @@ void texted_goto(void)
  */
 void texted_delete(void)
 {
+    int n0, n1;
     unsigned int from_line = line_num;
     unsigned int to_line = line_num;
-    int n0, n1;
 
     if (0 == checkbuf()) {
         return;
@@ -1344,8 +1334,8 @@ void texted_delete(void)
  */
 void delete_text(unsigned int from_line, unsigned int to_line)
 {
-    uint16_t addr = START_BRAM;
     uint16_t tmpaddr, endaddr;
+    uint16_t addr = START_BRAM;
 
     if (to_line < from_line) {
         prnerror (ERROR_BADARG);
@@ -1381,10 +1371,9 @@ void delete_text(unsigned int from_line, unsigned int to_line)
  */
 void texted_select(void)
 {
-    //uint16_t addr = START_BRAM;
+    int n0, n1;
     unsigned int from_line = line_num;
     unsigned int to_line = line_num;
-    int n0, n1;
 
     if (0 == checkbuf()) {
         return;
@@ -1426,8 +1415,6 @@ void texted_select(void)
  */
 void texted_cut(void)
 {
-    //uint16_t addr = START_BRAM;
-
     if (0 == checkbuf()) {
         return;
     }
@@ -1501,7 +1488,7 @@ void texted_membank(void)
     __asm__("jsr %w", MOS_BRAMSEL);
 
     if (*RAMBANKNUM != bank_num) {
-        puts("RAM bank has been switched.\n\r");
+        puts("WARNING: RAM bank has been switched.\n\r");
         puts("Cursor position and text selection markers were reset.\n\r");
         line_num = 0;
         sel_begin = 0;
@@ -1509,6 +1496,7 @@ void texted_membank(void)
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
+        bank_num = *RAMBANKNUM;
         texted_info();  // set bank_num, validate buffer and display info
     }
 }
@@ -1518,7 +1506,6 @@ void texted_membank(void)
  */
 void texted_info(void)
 {
-    bank_num = *RAMBANKNUM;
     checkbuf();
     puts(divider);
     puts("Current RAM bank#........: ");
@@ -1559,7 +1546,31 @@ int checkbuf(void)
     uint16_t lcount = MAX_LINES;
     int ret = 0;
 
-    bank_num = *RAMBANKNUM;
+    // RAM bank# sanity check:
+    if (bank_num != *RAMBANKNUM) {
+        puts("\n\rWARNING: Application RAM bank# is different than indicated by system variable.");
+        puts("\n\rSystem bank#.....: ");
+        puts(itoa(bank_num, ibuf1, RADIX_DEC));
+        puts("\n\rApplication bank#: ");
+        puts(itoa(*RAMBANKNUM, ibuf1, RADIX_DEC));
+        puts("\n\rWhich value should be set?");
+        puts("\n\r   a|A - app. / s|S - system / number - Other ");
+        getline();
+        puts("\n\r");
+        if (*prompt_buf == 's' ||  *prompt_buf == 'S') {
+            bank_num = *RAMBANKNUM;
+        } else if (*prompt_buf != 'a' && *prompt_buf != 'A') {
+            bank_num = atoi(prompt_buf);
+            if (bank_num < 0 || bank_num > 7) {
+                prnerror(ERROR_BADARG);
+                bank_num = 0;
+                puts("bank# = 0\n\r");
+            }
+        }
+        __asm__("lda %v", bank_num);
+        __asm__("jsr %w", MOS_BANKEDRAMSEL);
+    }
+    //bank_num = *RAMBANKNUM;
     if (0 == bankinit_flags[bank_num]) {
         // Check if the buffer was ever initialized.
         // Several protective measures applied to prevent this loop from
@@ -1658,7 +1669,6 @@ int main(void)
     // Select memory bank 0
     __asm__("lda %v", bank_num);
     __asm__("jsr %w", MOS_BANKEDRAMSEL);
-    //texted_initbuf();
     texted_info();
     texted_shell();
     return 0;

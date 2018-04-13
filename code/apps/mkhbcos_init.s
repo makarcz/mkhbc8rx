@@ -1,25 +1,14 @@
 ; ---------------------------------------------------------------------------
 ;
 ; File:		mkhbcos_init.s
-; Author:	Marek Karcz
+; Author:	Marek Karcz, 2012-2018.
 ;
 ; Original work: cc65 documentation/customization tutorial
-; 
+;
 ; Purpose:
 ;
 ;	 Startup code for cc65 (MKHBC-8-R2 version, to run under MKHBCOS,
 ;	 M.O.S. derivative).
-;
-; Revision history:
-;
-; 2012-01-10:
-;	Initial revision.
-;
-; 2012-01-11:
-;   Initialization of memory storage enabled.
-;
-; 2017-06-16
-;   Code moved from crt0.s to mkhbcos_init.s.
 ;
 ; ---------------------------------------------------------------------------
 
@@ -31,7 +20,8 @@
 
 .import    copydata, zerobss, initlib, donelib
 
-.include  "zeropage.inc"
+;.include  "zeropage.inc"
+.include  "mkhbcos_ml.inc"
 
 ; ---------------------------------------------------------------------------
 ; Place the startup code in a special segment
@@ -45,7 +35,7 @@
 ; M.O.S. Look in the map file for beginning of STARTUP segment.
 ; Provide that address to 'x' command (remember to use lower letters).
 
-_init:    
+_init:
 		; NOTE: This part is already done by MKHBCOS
         ;       Don't uncomment unless entire OS is compiled
         ;       with cc65 and loaded as single monolithic code.
@@ -71,14 +61,22 @@ _init:
           JSR     initlib              ; Run constructors
 
 ; ---------------------------------------------------------------------------
-; Call main()
+; Call main(), then destructors and return.
 
           JSR     _main
+          JSR     donelib
+          RTS
 
 ; ---------------------------------------------------------------------------
-; Back from main (this is also the _exit entry):  force a software break
+; Exit function / _exit entry:  force a software break
 
 _exit:    JSR     donelib              ; Run destructors
-          ;BRK
-		  rts
-
+          LDA     #$00                 ; Reset RAM bank to bank #0
+          JSR     mos_BankedRamSel
+          JSR     mos_RTCEnablePIE     ; Enable periodic RTC interrupt
+exitl001: JSR     mos_KbHit            ; Flush keyboard / serial port buffer
+          BEQ     exitend
+          JSR     mos_CallGetCh
+          JMP     exitl001
+exitend:  BRK                          ; Pass control back to O.S.
+		  BRK

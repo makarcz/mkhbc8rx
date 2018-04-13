@@ -406,10 +406,11 @@ System programs:
 
 	System programs currently consist of:
 
-        enhshell.c - combines rudimentary command line interface with
-                     additional functions for RTC, Banked RAM and more.
-        setdt.c - program that allows to set and show date / time.
-        date.c  - programs that shows date / time.
+        floader.c - binary data stream loader, allows to load data into
+                    computer's memory from serial port in binary mode.
+        texted.c - line text editor, uses banked RAM for 8 independent 16 kB
+                   text buffers (files) and features 3 kB clipboard for
+                   copy / paste operations and search function.
         d2hexbin.c - conversion tool from decimal to hexadecimal / binary code.
         enhmon.c - enhanced monitor with functions to manipulate memory,
                    including RTC's non-volatile RAM and functions for number

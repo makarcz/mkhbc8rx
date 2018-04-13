@@ -36,7 +36,7 @@ mkhbcos_ansi.o: ..\system\mkhbcos_ansi.c ..\system\mkhbcos_ml.h romlib.h
 	del mkhbcos_ansi.s
 
 mkhbcos_init.o: mkhbcos_init.s
-	ca65 mkhbcos_init.s -o mkhbcos_init.o
+	ca65 -I ..\system mkhbcos_init.s -o mkhbcos_init.o
 
 mkhbcos_serialio.o: ..\system\mkhbcos_serialio.s ..\system\mkhbcos_ml.inc
 	ca65 -I ..\system ..\system\mkhbcos_serialio.s -o mkhbcos_serialio.o
