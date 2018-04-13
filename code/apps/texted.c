@@ -62,6 +62,10 @@
  *  Optimized delete_text() function.
  *  Added assert() function.
  *
+ * 4/13/2018
+ *  Reduced clipboard size due to memory corruption.
+ *  Code optimized. Bugs fixed.
+ *
  *  ..........................................................................
  *  TO DO:
  *
@@ -89,7 +93,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
-#define CLIPBRDBUF_SIZE 1024*4
+#define CLIPBRDBUF_SIZE 1024*3
 
 // command codes
 enum cmdcodes
@@ -114,7 +118,7 @@ enum cmdcodes
 	CMD_UNKNOWN
 };
 
-const char *ver = "1.3.3.\n\r";
+const char *ver = "1.3.7.\n\r";
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -166,7 +170,6 @@ enum eErrors {
     ERROR_BADCMD,
     ERROR_FULLBUF,
     ERROR_BADARG,
-    //ERROR_NTD,
     ERROR_NOTEXT,
     ERROR_BUFNOTINIT,
     ERROR_ADDROOR,
@@ -185,7 +188,6 @@ const char *ga_errmsg[13] =
     "Unknown command.",
     "Buffer full. Enter @EOT to exit to prompt.",
     "Check arguments.",
-    //"Nothing to delete.",
     "No text in buffer.",
     "Buffer was never initialized.",
     "Address out of range.",
@@ -301,21 +303,52 @@ uint16_t    renumber(uint16_t addr, int offs);
 void        list_clipbrd(void);
 void        texted_find(void);
 void        texted_insdttm(void);
-void        assert(uint16_t line, int cond);
+void        texted_assert(uint16_t line, int cond, const char *msg);
+void        texted_exit(void);
+void        prninfo_addtext(void);
 
 ////////////////////////////// CODE /////////////////////////////////////
+
+/*
+ * Print information about text adding function.
+ */
+void prninfo_addtext(void)
+{
+    puts("\n\rType lines of text no longer than 80 characters.\n\r");
+    puts("Press BAKSPACE to delete characters, ENTER to add new line.\n\r");
+    puts("Type '@EOT' in the new line and press ENTER to finish.\n\r\n\r");
+}
+
+/*
+ * Handle exit.
+ */
+void texted_exit(void)
+{
+    memset(prompt_buf, 0, PROMPTBUF_SIZE);
+    strcpy(prompt_buf, "b 00");
+    texted_membank();
+    while (kbhit()) {
+        getc();
+    }
+    pause_sec64(65);
+    __asm__("BRK");
+    __asm__("BRK");
+}
 
 /*
  * If the condition evaluates to zero (false), prints a message and aborts
  * the program.
  */
-void assert(uint16_t line, int cond)
+void texted_assert(uint16_t line, int cond, const char *msg)
 {
     if (!cond) {
         puts("\n\rASSERT in line ");
-        puts(utoa(line, ibuf1, RADIX_DEC));
-        puts(". Program aborted.\n\r");
-        exit(0);
+        puts(utoa(line, ibuf3, RADIX_DEC));
+        puts("\n\rMessage: ");
+        puts(msg);
+        puts("\n\r");
+        pause_sec64(65);
+        texted_exit();
     }
 }
 
@@ -796,6 +829,7 @@ void texted_add(void)
             return;
         }
     }
+    prninfo_addtext();
     while (1) {
         // create and store null text header at current address
         strcpy((char *)curr_addr, null_txt_hdr);
@@ -896,6 +930,7 @@ void texted_insert(void)
         texted_add();   // if we are inserting into empty buffer
                         // it is the same as adding text
     } else {
+        prninfo_addtext();
         while (1) {
             goto_line(line_num);
             // get the text from user input
@@ -1266,9 +1301,9 @@ void texted_goto(void)
  */
 void texted_delete(void)
 {
-    uint16_t addr = START_BRAM;
-    unsigned int from_line, to_line;
-    int n1, n2;
+    unsigned int from_line = line_num;
+    unsigned int to_line = line_num;
+    int n0, n1;
 
     if (0 == checkbuf()) {
         return;
@@ -1277,22 +1312,19 @@ void texted_delete(void)
         prnerror(ERROR_NOTEXT);
         return;
     }
-    // current line is default
-    from_line = line_num;
-    to_line = line_num;
     // parse command line
     if (strlen(prompt_buf) > 2) {
-        n1 = adv2nxttoken(2);
-        n2 = adv2nextspc(n1);
-        if (n2 > n1) {
-            from_line = atoi(prompt_buf + n1);
-            n1 = adv2nxttoken(n2);
-            n2 = adv2nextspc(n1);
-            if (n2 > n1) {
-                if (0 == strncmp((const char *)(prompt_buf + n1), "end", 3)) {
+        n0 = adv2nxttoken(2);
+        n1 = adv2nextspc(n0);
+        if (n1 > n0) {
+            from_line = atoi(prompt_buf + n0);
+            n0 = adv2nxttoken(n1);
+            n1 = adv2nextspc(n0);
+            if (n1 > n0) {
+                if (0 == strncmp((const char *)(prompt_buf + n0), "end", 3)) {
                     to_line = last_line;
                 } else {
-                    to_line = atoi(prompt_buf + n1);
+                    to_line = atoi(prompt_buf + n0);
                 }
             } else {
                 to_line = from_line; // only one argument supplied
@@ -1315,18 +1347,21 @@ void delete_text(unsigned int from_line, unsigned int to_line)
     uint16_t addr = START_BRAM;
     uint16_t tmpaddr, endaddr;
 
-    // the actual delete procedure
-    // 1. Go to the from_line position.
-    if (to_line < from_line || 0xFFFF == goto_line(from_line)) {
-        // something is wrong, from_line is not found
+    if (to_line < from_line) {
         prnerror (ERROR_BADARG);
         return;
     }
+    // the actual delete procedure
+    // 1. Go to the from_line position.
+    goto_line(from_line);
     tmpaddr = curr_addr; // remember current addr - we shift up to this addr
     // 2. Find address of the next line after to_line.
     goto_line(to_line);
     endaddr = PEEKW(curr_addr + 3);
-    assert(__LINE__, (endaddr <= lastaddr));
+    utoa((unsigned int)endaddr, ibuf1, RADIX_HEX);
+    strcat(ibuf1, " ");
+    strcat(ibuf1, utoa((unsigned int)lastaddr, ibuf2, RADIX_HEX));
+    texted_assert(__LINE__, (endaddr <= lastaddr), ibuf1);
     // 3. Delete lines from_line .. to_line by moving text up in the buffer.
     memmove((void *)tmpaddr, (void *)endaddr,
             lastaddr - endaddr + strlen(null_txt_hdr));
@@ -1346,7 +1381,7 @@ void delete_text(unsigned int from_line, unsigned int to_line)
  */
 void texted_select(void)
 {
-    uint16_t addr = START_BRAM;
+    //uint16_t addr = START_BRAM;
     unsigned int from_line = line_num;
     unsigned int to_line = line_num;
     int n0, n1;
@@ -1391,7 +1426,7 @@ void texted_select(void)
  */
 void texted_cut(void)
 {
-    uint16_t addr = START_BRAM;
+    //uint16_t addr = START_BRAM;
 
     if (0 == checkbuf()) {
         return;
@@ -1570,12 +1605,16 @@ int checkbuf(void)
         }
         if (ret) {
             lastaddr = addr + strlen(null_txt_hdr);
-            if (0 == line_count || sel_begin > last_line || sel_end > last_line) {
+            if (0 == line_count
+                || sel_begin > last_line
+                || sel_end > last_line) {
+
                 sel_begin = 0;
                 sel_end = 0;
                 puts("WARNING: Text selection was reset to line #0.\n\r");
             }
             if (line_num > last_line) {
+
                 line_num = last_line;
                 curr_addr = addr;
                 puts("WARNING: Current line was reset to last line #");
