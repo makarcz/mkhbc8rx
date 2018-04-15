@@ -66,6 +66,11 @@
  *  Reduced clipboard size due to memory corruption.
  *  Code optimized. Bugs fixed.
  *
+ * 4/15/2018
+ *  Clipboard size set at 3.5 kB and tested to function properly.
+ *  Added checking the consistency of RAM bank setup - this detects memory
+ *  management malfunctions.
+ *
  *  ..........................................................................
  *  TO DO:
  *
@@ -73,11 +78,11 @@
  *  BUGS:
  *
  *  1) When clipboard size is 4 kB, program malfunctions. I am not sure if this
- *     is a cc65 issue or bug in my code. Wher I reduce the size to 3 kB all is
- *     good again. Compilation / linking doesn't warn about any memory segments
- *     overlapping and I examined carefully listing and map files and found no
- *     reason for this problem. For now the issue is averted by reducing the
- *     size of the clipboard buffer.
+ *     is a cc65 issue or bug in my code. Wher I reduce the size to 3.5 kB all
+ *     is good again. Compilation / linking doesn't warn about any memory
+ *     segments overlapping and I examined carefully listing and map files and
+ *     found no reason for this problem. For now the issue is averted by
+ *     reducing the size of the clipboard buffer.
  *
  *  ..........................................................................
  */
@@ -100,7 +105,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
-#define CLIPBRDBUF_SIZE 1024*3
+#define CLIPBRDBUF_SIZE 512*7   // 3.5 kB, don't go above it
 
 // command codes
 enum cmdcodes
@@ -125,7 +130,7 @@ enum cmdcodes
 	CMD_UNKNOWN
 };
 
-const char *ver = "1.3.7.\n\r";
+const char *ver = "1.3.9.\n\r";
 
 // next pointer in last line's header in text buffer should point to
 // such content in memory
@@ -212,11 +217,11 @@ const char *helptext[43] =
     " b : select / show current file # (bank #).\n\r",
     "     b [00..07]\n\r",
     " l : List text buffer contents.\n\r",
-    "     l all [n] | sel [n] | clb | [from_line#[-to_line#]] [n]\n\r",
-    "       n - show line numbers\n\r",
-    "       all - list all content\n\r",
-    "       sel - list only selected content\n\r",
-    "       clb - list clipboard contents\n\r",
+    "     l all [n] | sel [n] | clb | [from_line#[-to_line# | -end]] [n]\n\r",
+    "      n - show line numbers\n\r",
+    "      all - list all content\n\r",
+    "      sel - list only selected content\n\r",
+    "      clb - list clipboard contents\n\r",
     " a : start adding text at the end of buffer.\n\r",
     " i : start inserting text at line# (or current line).\n\r",
     "     i [line#]\n\r",
@@ -247,7 +252,7 @@ const char *helptext[43] =
     "   Arguments are <mandatory> OR [optional].\n\r",
     "   When range is provided, SPACE can be used instead of '-'.\n\r",
     "   Argument 'text' can contain spaces.\n\r",
-    "   Aliases: 'start' - 1-st line of text, 'end' - last line of text.\n\r",
+    "   'start' - 1-st line of text, 'end' - last line of text.\n\r",
     "\n\r",
     "@EOH"
 };
@@ -1151,7 +1156,11 @@ void texted_list(void)
                 if (n0 > n) {
                     show_num = (prompt_buf[n] == 'n');
                     if (!show_num) {
-                        to_line = atoi (prompt_buf + n);
+                        if (0 == strncmp((const char *)(prompt_buf + n), "end", 3)) {
+                            to_line = last_line;
+                        } else {
+                            to_line = atoi (prompt_buf + n);
+                        }
                         if (to_line < from_line) {
                             prnerror(ERROR_BADARG);
                             return;
@@ -1550,9 +1559,9 @@ int checkbuf(void)
     if (bank_num != *RAMBANKNUM) {
         puts("\n\rWARNING: Application RAM bank# is different than indicated by system variable.");
         puts("\n\rSystem bank#.....: ");
-        puts(itoa(bank_num, ibuf1, RADIX_DEC));
-        puts("\n\rApplication bank#: ");
         puts(itoa(*RAMBANKNUM, ibuf1, RADIX_DEC));
+        puts("\n\rApplication bank#: ");
+        puts(itoa(bank_num, ibuf1, RADIX_DEC));
         puts("\n\rWhich value should be set?");
         puts("\n\r   a|A - app. / s|S - system / number - Other ");
         getline();

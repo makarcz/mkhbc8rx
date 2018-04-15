@@ -50,6 +50,7 @@ int g_nStartAddr = 2048; // $0800
 int g_nExecAddr = 2048;	// $0800
 int g_nSuppressAutoExec = 1;
 int g_nSuppressAllZeroRows = 0;
+int g_nSetRamBank = -1;
 
 char g_aszHexTbl[][256] =
 {
@@ -113,6 +114,11 @@ void ScanArgs(int argc, char *argv[])
 		 		 g_nExecAddr = g_nStartAddr;
 		 		 g_nSuppressAutoExec = 0;
       }
+      else if (strcmp(argv[n],"-b") == 0)
+      {
+      	 n++;
+      	 g_nSetRamBank = atoi(argv[n]);
+			}
       else if (strcmp(argv[n],"-x") == 0)
       {
          n++;
@@ -147,6 +153,13 @@ void ConvertFile(void)
    {
       if (NULL != (fpo = fopen(g_szHexFileName,"w")))
       {
+      	 if (g_nSetRamBank >= 0 && g_nSetRamBank < 256)
+		 		 {
+		 		 	 memset(hex, 80, sizeof(char));
+		 		 	 sprintf(hex, "b %s\n", g_aszHexTbl[g_nSetRamBank]);
+		 		 	 if (DEBUG) printf("Adding line: %s", hex);
+		 		 	 fputs(hex, fpo);
+				 }
          while(0 == feof(fpi))
          {
 					 memset(bt, 17, sizeof(char));
