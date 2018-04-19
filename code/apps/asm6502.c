@@ -44,6 +44,7 @@ enum cmdcodes
     CMD_LIST,
     CMD_BANK,
     CMD_INFO,
+    CMD_ERASE,
 	//-------------
 	CMD_UNKNOWN
 };
@@ -67,12 +68,13 @@ enum eErrors {
     ERROR_BUFNOTINIT,
     ERROR_ADDROOR,
     ERROR_TIMEOUT,
+    ERROR_FULLBUF,
     //------------------
     ERROR_UNKNOWN
 };
 
 // Error messages.
-const char *ga_errmsg[9] =
+const char *ga_errmsg[10] =
 {
     "OK.",
     "Unknown command.",
@@ -81,6 +83,7 @@ const char *ga_errmsg[9] =
     "Buffer was never initialized.",
     "Address out of range.",
     "Timeout during text buffer search operation.",
+    "Buffer full.",
     "Unknown."
 };
 
@@ -125,28 +128,28 @@ int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 char bankinit_flags[8];
-unsigned int line_num, line_count;
+unsigned int line_num, line_count, last_line;
 uint16_t curr_addr, lastaddr;
-int code_bank_num, out_bank_num;
+int code_bank_num, out_bank_num, bank_num;
 unsigned long tmr64;
 
 // Functions prototypes.
-void        getline(void);
+void        get_line(void);
 void        parse_cmd(void);
-void        prnhelp(void);
+void        prn_help(void);
 void        cmd_shell(void);
-void        prnbanner(void);
-void        prnerror(int errnum);
-int         adv2nxttoken(int idx);
-int         adv2nextspc(int idx);
+void        prn_banner(void);
+void        prn_error(int errnum);
+int         adv2nxt_token(int idx);
+int         adv2next_spc(int idx);
 int         exec_cmd(void);
-void        listbuf(void);
+void        list_buf(void);
 void        pause_sec64(uint16_t delay);
 int         isnull_hdr(const char *hdr);
-void        initbuf(void);
-void        setbuffers(void);
-void        meminfo(void);
-int         checkbuf(void);
+void        init_buf(void);
+void        set_buffers(void);
+void        mem_info(void);
+int         check_buf(void);
 int         isaddr_oor(uint16_t addr);
 void        set_timeout(int secs);
 int         is_timeout(void);
@@ -155,6 +158,7 @@ void        assert(uint16_t line, int cond, const char *msg);
 void        add2output(const char *txt);
 uint16_t    goto_line(unsigned int gtl);
 void        delete_text(unsigned int from_line, unsigned int to_line);
+uint16_t    renumber(uint16_t addr, int offs);
 
 ////////////////////////////// CODE /////////////////////////////////////
 
@@ -193,7 +197,7 @@ int isaddr_oor(uint16_t addr)
 {
     if (addr < START_BRAM || addr >= END_BRAM)
     {
-        prnerror(ERROR_ADDROOR);
+        prn_error(ERROR_ADDROOR);
         puts("addr = $");
         puts(utoa(addr, ibuf1, RADIX_HEX));
         puts("\n\r");
@@ -276,7 +280,7 @@ int is_timeout(void)
 /*
  * Advance index to next token.
  */
-int adv2nxttoken(int idx)
+int adv2nxt_token(int idx)
 {
     while (prompt_buf[idx] == 32) {
         idx++;
@@ -288,7 +292,7 @@ int adv2nxttoken(int idx)
 /*
  * Advance index to next space.
  */
-int adv2nextspc(int idx)
+int adv2next_spc(int idx)
 {
     while (prompt_buf[idx] != 0) {
 
@@ -306,7 +310,7 @@ int adv2nextspc(int idx)
 }
 
 /* print error message in a separate line */
-void prnerror(int errnum)
+void prn_error(int errnum)
 {
     puts("\n\rERROR: ");
     puts(ga_errmsg[errnum]);
@@ -314,7 +318,7 @@ void prnerror(int errnum)
 }
 
 /* get line of text from input */
-void getline(void)
+void get_line(void)
 {
     memset(prompt_buf, 0, PROMPTBUF_SIZE);
     gets(prompt_buf);
@@ -350,7 +354,7 @@ void parse_cmd(void)
 }
 
 /* print help */
-void prnhelp(void)
+void prn_help(void)
 {
     unsigned char cont = 1, i = 0;
 
@@ -384,26 +388,26 @@ int exec_cmd(void)
         case CMD_NULL:
             break;
         case CMD_UNKNOWN:
-            prnerror(ERROR_BADCMD);
+            prn_error(ERROR_BADCMD);
             break;
         case CMD_EXIT:
             puts("Bye!\n\r");
             ret = 0;
             break;
         case CMD_HELP:
-            texted_help();
+            prn_help();
             break;
         case CMD_LIST:
-            listbuf();
+            list_buf();
             break;
         case CMD_ERASE:
-            initbuf();
+            init_buf();
             break;
         case CMD_BANK:
-            setbuffers();
+            set_buffers();
             break;
         case CMD_INFO:
-            meminfo();
+            mem_info();
             break;
         default:
             break;
@@ -413,7 +417,7 @@ int exec_cmd(void)
 }
 
 /*
- *  Add text at the end of the text buffer.
+ *  Add single line of text at the end of the text buffer.
  */
 void add2output(const char *txt)
 {
@@ -421,7 +425,7 @@ void add2output(const char *txt)
 
     curr_addr = START_BRAM;
     line_num = 0;
-    if (0 == checkbuf()) {
+    if (0 == check_buf()) {
         return;
     }
     // Position current address at the NULL line after text.
@@ -436,43 +440,25 @@ void add2output(const char *txt)
             return;
         }
     }
-    while (1) {
-        // create and store null text header at current address
-        strcpy((char *)curr_addr, null_txt_hdr);
-        // get line of text from user input
-        if (0 == strncmp(eot_str, txt, strlen(eot_str))) {
-            break;  // user entered command to end text entry
-        }
-        strcpy (CurrLine.text, txt);
-        CurrLine.len = strlen(txt);
-        CurrLine.next_ptr = curr_addr + CurrLine.len + 6;
-        if (CurrLine.next_ptr > (END_BRAM - 6)) {
-            // Text buffer full, terminate text entry here.
-            // User must still enter '@EOT' to exit loop.
-            // This is to prevent entering accidental command while loading
-            // text via serial port and buffer overflows while input data is
-            // still coming. Instead ignore all incoming text after
-            // buffer was filled until end-of-text command is entered.
-            while(1) {
-                prnerror(ERROR_FULLBUF);
-                getline();
-                if (0 == strncmp(eot_str, txt, strlen(eot_str))) {
-                    break;  // user entered command to end text entry
-                }
-            }
-            break;
-        }
+    // create and store null text header at current address
+    strcpy((char *)curr_addr, null_txt_hdr);
+    strcpy (CurrLine.text, txt);
+    CurrLine.len = strlen(txt);
+    CurrLine.next_ptr = curr_addr + CurrLine.len + 6;
+    if (CurrLine.next_ptr > (END_BRAM - 6)) {
+        // Text buffer full.
+        prn_error(ERROR_FULLBUF);
+    } else {
         // update header and text at current address
         CurrLine.num = line_num;
         write_text2mem(curr_addr);
-        // proceed to next address
         line_num++;
         curr_addr = CurrLine.next_ptr;
         if (isaddr_oor(curr_addr)) {
             return;
         }
     }
-    checkbuf(); // update globals after text buffer was altered
+    check_buf(); // update globals after text buffer was altered
 }
 
 /*
@@ -480,7 +466,7 @@ void add2output(const char *txt)
  * Command is expected in prompt_buf before calling this function:
  * "l <src | out> <all | from_line#>[-to_line# | -end] [n]"
  */
-void listbuf(void)
+void list_buf(void)
 {
     int      n0, n;
     uint16_t from_line = line_num;
@@ -489,79 +475,82 @@ void listbuf(void)
     uint16_t line = 0;
     int      show_num = 0;
 
-    if (0 == checkbuf()) {
-        return;
-    }
     if (strlen(prompt_buf) > 1) {
-        n0 = adv2nxttoken(2);
-        n = adv2nextspc(n0);
-        if (0 == strncmp(prompt_buf + n0, "clb", 3)) {
 
-            if (0 == isnull_hdr((const char *)clipbrd)) {
-                list_clipbrd();
-            } else {
-                prnerror(ERROR_EMPTYCLIPBRD);
-            }
+        n0 = adv2nxt_token(2);
+        n = adv2next_spc(n0);
+
+        if (n <= n0) {
+            prn_error(ERROR_BADARG);
+            puts ("Expected: src | out\n\r");
+            return;
+        }
+
+        if (0 == strncmp(prompt_buf + n0, "src", 3)) {
+
+            bank_num = code_bank_num;
+
+        } else if (0 == strncmp(prompt_buf + n0, "out", 3)) {
+
+            bank_num = out_bank_num;
+
+        } else {
+
+            prn_error(ERROR_BADARG);
+            puts ("Expected: src | out\n\r");
             return;
 
-        } else if (0 == strncmp(prompt_buf + n0, "sel", 3)) {
+        }
 
-            n = adv2nxttoken(n);
-            n0 = adv2nextspc(n);
-            show_num = (prompt_buf[n] == 'n');
-            from_line = sel_begin;
-            to_line = sel_end;
+        // now that we know which buffer / bank#, check the sanity
+        if (0 == check_buf()) {
+            return;
+        }
 
-        } else if (strncmp(prompt_buf + n0, "all", 3)) {
-            // range specified in command line
-            show_num = (prompt_buf[n0] == 'n');
-            if (!show_num) {
-                from_line = atoi (prompt_buf + n0);
-                to_line = from_line;
-                n = adv2nxttoken(n);
-                n0 = adv2nextspc(n);
-                if (n0 > n) {
-                    show_num = (prompt_buf[n] == 'n');
-                    if (!show_num) {
-                        if (0 == strncmp((const char *)(prompt_buf + n), "end", 3)) {
-                            to_line = last_line;
+        n = adv2nxt_token(n);
+        n0 = adv2next_spc(n);
+
+        if (n0 <= n) {
+            prn_error(ERROR_BADARG);
+            puts ("Expected: range argument(s)\n\r");
+            return;
+        }
+
+        if (0 == strncmp(prompt_buf + n, "all", 3)) {
+
+            from_line = 0;
+            to_line = last_line;
+
+        } else {
+
+            from_line = atoi(prompt_buf + n);
+            n = adv2nxt_token(n0);
+            n0 = adv2next_spc(n);
+            if (n0 > n) {
+                if (0 == strncmp(prompt_buf + n, "end", 3)) {
+                    to_line = last_line;
+                } else if (*(prompt_buf + n) == 'n') {
+                    show_num = 1;
+                } else {
+                    to_line = atoi(prompt_buf + n);
+                    n = adv2nxt_token(n0);
+                    n0 = adv2next_spc(n);
+                    if (n0 > n) {
+                        if (*(prompt_buf + n) == 'n') {
+                            show_num = 1;
                         } else {
-                            to_line = atoi (prompt_buf + n);
-                        }
-                        if (to_line < from_line) {
-                            prnerror(ERROR_BADARG);
+                            prn_error(ERROR_BADARG);
+                            puts("Expected: n\n\r");
                             return;
                         }
-                        n = adv2nxttoken(n0);
-                        adv2nextspc(n);
-                        show_num = (prompt_buf[n] == 'n');
                     }
                 }
             }
-        } else {    // list all content
-
-            n = adv2nxttoken(n);
-            n0 = adv2nextspc(n);
-            show_num = (prompt_buf[n] == 'n');
-            from_line = 0;
-            while (1) {
-                if (isnull_hdr((const char *)addr)) {
-                    break;  // found last line
-                }
-                to_line = PEEKW(addr);
-                addr = PEEKW(addr + 3);
-                if (isaddr_oor(addr)) {
-                    return;
-                }
-            }
-            addr = START_BRAM;
         }
     }
-    if (isnull_hdr((const char *)START_BRAM)) {
-        prnerror(ERROR_NOTEXT);
-        return;
-    }
-
+    // set corresponding buffer's bank number
+    __asm__("lda %v", bank_num);
+    __asm__("jsr %w", MOS_BANKEDRAMSEL);
     while (1) {
         if (isnull_hdr((const char *)addr)) {
             break; // EOT, null text header is next
@@ -622,6 +611,34 @@ uint16_t goto_line(unsigned int gtl)
 }
 
 /*
+ * Renumber line numbers in text records starting at address addr.
+ * Also, refresh the next record pointers in these text records as this
+ * function is called after the text has been relocated in buffer.
+ * Return address where the renumbering ended.
+ */
+uint16_t renumber(uint16_t addr, int offs)
+{
+    unsigned int lnum;
+    uint16_t nxtaddr;
+
+    while(1) {
+        if (isnull_hdr((const char *)addr)) {
+            break;
+        }
+        lnum = PEEKW(addr) + offs;
+        POKEW(addr, lnum);
+        nxtaddr = addr + PEEK(addr + 2) + 6;
+        if (isaddr_oor(nxtaddr)) {
+            break;
+        }
+        POKEW(addr + 3, nxtaddr);
+        addr = nxtaddr;
+    }
+
+    return addr;
+}
+
+/*
  * Delete text from buffer.
  */
 void delete_text(unsigned int from_line, unsigned int to_line)
@@ -630,7 +647,7 @@ void delete_text(unsigned int from_line, unsigned int to_line)
     uint16_t addr = START_BRAM;
 
     if (to_line < from_line) {
-        prnerror (ERROR_BADARG);
+        prn_error (ERROR_BADARG);
         return;
     }
     // the actual delete procedure
@@ -643,7 +660,7 @@ void delete_text(unsigned int from_line, unsigned int to_line)
     utoa((unsigned int)endaddr, ibuf1, RADIX_HEX);
     strcat(ibuf1, " ");
     strcat(ibuf1, utoa((unsigned int)lastaddr, ibuf2, RADIX_HEX));
-    texted_assert(__LINE__, (endaddr <= lastaddr), ibuf1);
+    assert(__LINE__, (endaddr <= lastaddr), ibuf1);
     // 3. Delete lines from_line .. to_line by moving text up in the buffer.
     memmove((void *)tmpaddr, (void *)endaddr,
             lastaddr - endaddr + strlen(null_txt_hdr));
@@ -666,13 +683,13 @@ void cmd_shell(void)
     while(cont)
     {
         puts("asm6502>");
-        getline();
+        get_line();
         parse_cmd();
         cont = exec_cmd();
     }
 }
 
-void prnbanner(void)
+void prn_banner(void)
 {
     pause_sec64(128);
     while (kbhit()) getc(); // flush RX buffer
@@ -686,15 +703,13 @@ void prnbanner(void)
 /*
  * Initialize text buffer by putting null text header 1-st.
  */
-void initbuf(void)
+void init_buf(void)
 {
     puts("Initialize text buffer? (Y/N) ");
-    getline();
+    get_line();
     if (*prompt_buf == 'y' || *prompt_buf == 'Y') {
         strcpy((char *)START_BRAM, null_txt_hdr);
         line_num = 0;
-        sel_begin = 0;
-        sel_end = 0;
         bank_num = *RAMBANKNUM;
         curr_addr = START_BRAM;
         last_line = 0;
@@ -709,7 +724,7 @@ void initbuf(void)
  * Command is expected in prompt_buf before calling this function:
  * "b [hex_bank#]" (e.g.: "b 02")
  */
-void setbuffers(void)
+void set_buffers(void)
 {
     __asm__("jsr %w", MOS_BRAMSEL);
 
@@ -717,8 +732,6 @@ void setbuffers(void)
         puts("WARNING: RAM bank has been switched.\n\r");
         puts("Cursor position and text selection markers were reset.\n\r");
         line_num = 0;
-        sel_begin = 0;
-        sel_end = 0;
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
@@ -730,9 +743,9 @@ void setbuffers(void)
 /*
  * Set bank_num, validate buffer and display text buffer and memory use info.
  */
-void meminfo(void)
+void mem_info(void)
 {
-    checkbuf();
+    check_buf();
     puts(divider);
     puts("Current RAM bank#........: ");
     puts(utoa((unsigned int)bank_num, ibuf1, RADIX_DEC));
@@ -752,11 +765,6 @@ void meminfo(void)
     puts("Lines in buffer..........: ");
     puts(utoa((unsigned int)line_count, ibuf1, RADIX_DEC));
     puts("\n\r");
-    puts("Selected text lines from.: ");
-    puts(utoa((unsigned int)sel_begin, ibuf1, RADIX_DEC));
-    puts(", to.: ");
-    puts(utoa((unsigned int)sel_end, ibuf1, RADIX_DEC));
-    puts("\n\r");
     puts(divider);
 }
 
@@ -766,7 +774,7 @@ void meminfo(void)
  * Return non-zero if buffer has text or was ever initialized.
  * Return 0 if buffer has non-initialized (random) data.
  */
-int checkbuf(void)
+int check_buf(void)
 {
     uint16_t addr = START_BRAM;
     uint16_t lcount = MAX_LINES;
@@ -781,14 +789,14 @@ int checkbuf(void)
         puts(itoa(bank_num, ibuf1, RADIX_DEC));
         puts("\n\rWhich value should be set?");
         puts("\n\r   a|A - app. / s|S - system / number - Other ");
-        getline();
+        get_line();
         puts("\n\r");
         if (*prompt_buf == 's' ||  *prompt_buf == 'S') {
             bank_num = *RAMBANKNUM;
         } else if (*prompt_buf != 'a' && *prompt_buf != 'A') {
             bank_num = atoi(prompt_buf);
             if (bank_num < 0 || bank_num > 7) {
-                prnerror(ERROR_BADARG);
+                prn_error(ERROR_BADARG);
                 bank_num = 0;
                 puts("bank# = 0\n\r");
             }
@@ -859,14 +867,14 @@ int checkbuf(void)
                 puts("\n\r");
             }
         } else {
-            prnerror(ERROR_TIMEOUT);
+            prn_error(ERROR_TIMEOUT);
             puts("Text buffer may be corrupted.");
-            texted_initbuf();
+            texted_init_buf();
             ret = isnull_hdr((const char *)START_BRAM);
         }
     } else {
-        prnerror(ERROR_BUFNOTINIT);
-        texted_initbuf();
+        prn_error(ERROR_BUFNOTINIT);
+        texted_init_buf();
         ret = isnull_hdr((const char *)START_BRAM);
     }
 
@@ -891,11 +899,11 @@ int main(void)
     for (i=0; i<8; i++) {
         bankinit_flags[i] = 0;
     }
-    prnbanner();
+    prn_banner();
     // Select memory bank 0
     __asm__("lda %v", bank_num);
     __asm__("jsr %w", MOS_BANKEDRAMSEL);
-    meminfo();
+    mem_info();
     cmd_shell();
     return 0;
 }

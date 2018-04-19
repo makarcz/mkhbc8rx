@@ -18,6 +18,7 @@ clean:
 	del *_prg.txt
 	del hello microchess test1 testansi tinybasic tinybas022 d2hb enhmon clock
 	del texted
+	del asm6502
 	del eh_basic
 	del floader
 
@@ -67,6 +68,10 @@ conv: d2hexbin.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
 texted: texted.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
 	cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -o texted -m texted.map texted.c mkhbcos.lib
 	..\bin2hex -f texted -o texted_prg.txt -w 2816 -x 2816 -z
+
+asm6502: asm6502.c ..\system\mkhbcos_ml.h romlib.h mkhbcoslib.cfg mkhbcos.lib
+	cl65 -t none --cpu 6502 -I ..\system --config mkhbcoslib.cfg -l -o asm6502 -m asm6502.map asm6502.c mkhbcos.lib
+	..\bin2hex -f asm6502 -o asm6502_prg.txt -w 2816 -x 2816 -z
 
 tinybas022: tinybas022.asm tinybasic.cfg
 	cl65 --verbose --cpu 6502 --asm-include-dir ..\system --config tinybasic.cfg --target none --mapfile tinybas022.map --listing tinybas022.asm
