@@ -69,12 +69,14 @@ enum eErrors {
     ERROR_ADDROOR,
     ERROR_TIMEOUT,
     ERROR_FULLBUF,
+    ERROR_BADBANK,
+    ERROR_BANKSEQUAL,
     //------------------
     ERROR_UNKNOWN
 };
 
 // Error messages.
-const char *ga_errmsg[10] =
+const char *ga_errmsg[12] =
 {
     "OK.",
     "Unknown command.",
@@ -84,6 +86,8 @@ const char *ga_errmsg[10] =
     "Address out of range.",
     "Timeout during text buffer search operation.",
     "Buffer full.",
+    "Invalid RAM bank#. (expected: 0..7)",
+    "Code and output buffers must be in different banks.",
     "Unknown."
 };
 
@@ -123,6 +127,34 @@ struct text_line {
     char text[TEXTLINE_SIZE];
 } CurrLine;
 
+enum eAddrModes {
+    IMM = 0,    // #aa
+    ABS,        // aaaa
+    ZPG,        // aa
+    IMP,
+    INDABS,     // (aaaa)
+    ABSINX,     // aaaa,X
+    ABSINY,     // aaaa,Y
+    ZPGINX,     // aa,X
+    ZPGINY,     // aa,Y
+    INXIND,     // (aa,X)
+    INDINY,     // (aa),Y
+    REL,        // aaaa
+    ACC         // A
+};
+
+struct instr {
+    char mnem[4];   // assembly mnemonic of the instruction
+    unsigned char opcode[14];   // op-codes for each addressing mode
+};
+
+const struct instr OpCodes[4] = {
+    {"adc", {0x69, 0x6D, 0x65, 0x00, 0x00, 0x7D, 0x79, 0x75, 0x00, 0x61, 0x71, 0x00, 0x00, 0x00}},
+    {"and", {0x29, 0x2D, 0x25, 0x00, 0x00, 0x3D, 0x39, 0x35, 0x00, 0x21, 0x31, 0x00, 0x00, 0x00}},
+    {"asl", {0x00, 0x0E, 0x06, 0x00, 0x00, 0x1E, 0x00, 0x16, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x00}},
+    {"", {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+};
+
 // globals
 int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
@@ -149,7 +181,7 @@ int         isnull_hdr(const char *hdr);
 void        init_buf(void);
 void        set_buffers(void);
 void        mem_info(void);
-int         check_buf(void);
+int         check_buf(int bank);
 int         isaddr_oor(uint16_t addr);
 void        set_timeout(int secs);
 int         is_timeout(void);
@@ -425,7 +457,7 @@ void add2output(const char *txt)
 
     curr_addr = START_BRAM;
     line_num = 0;
-    if (0 == check_buf()) {
+    if (0 == check_buf(out_bank_num)) {
         return;
     }
     // Position current address at the NULL line after text.
@@ -458,7 +490,7 @@ void add2output(const char *txt)
             return;
         }
     }
-    check_buf(); // update globals after text buffer was altered
+    check_buf(out_bank_num); // update globals after text buffer was altered
 }
 
 /*
@@ -503,7 +535,7 @@ void list_buf(void)
         }
 
         // now that we know which buffer / bank#, check the sanity
-        if (0 == check_buf()) {
+        if (0 == check_buf(bank_num)) {
             return;
         }
 
@@ -705,12 +737,14 @@ void prn_banner(void)
  */
 void init_buf(void)
 {
-    puts("Initialize text buffer? (Y/N) ");
+    puts("Initialize output buffer? (Y/N) ");
     get_line();
     if (*prompt_buf == 'y' || *prompt_buf == 'Y') {
+        bank_num = out_bank_num;
+        __asm__("lda %v", bank_num);
+        __asm__("jsr %w", MOS_BANKEDRAMSEL);
         strcpy((char *)START_BRAM, null_txt_hdr);
         line_num = 0;
-        bank_num = *RAMBANKNUM;
         curr_addr = START_BRAM;
         last_line = 0;
         line_count = 0;
@@ -726,18 +760,23 @@ void init_buf(void)
  */
 void set_buffers(void)
 {
-    __asm__("jsr %w", MOS_BRAMSEL);
+    int n0, n1;
 
-    if (*RAMBANKNUM != bank_num) {
-        puts("WARNING: RAM bank has been switched.\n\r");
-        puts("Cursor position and text selection markers were reset.\n\r");
-        line_num = 0;
-        curr_addr = START_BRAM;
-        last_line = 0;
-        line_count = 0;
-        bank_num = *RAMBANKNUM;
-        texted_info();  // set bank_num, validate buffer and display info
+    n0 = adv2nxt_token(2);
+    n1 = adv2next_spc(n0);
+    if (n1 > n0) {
+        code_bank_num = atoi(prompt_buf + n0);
+        n0 = adv2nxt_token(n1);
+        n1 = adv2next_spc(n0);
+        if (n1 > n0) {
+            out_bank_num = atoi(prompt_buf + n0);
+        }
+    } else {
+        prn_error(ERROR_BADARG);
+        puts("Expected: src_code_bank#\n\r");
     }
+    bank_num = code_bank_num;
+    mem_info();  // set bank_num, validate buffer and display info
 }
 
 /*
@@ -745,24 +784,27 @@ void set_buffers(void)
  */
 void mem_info(void)
 {
-    check_buf();
+    check_buf(code_bank_num);
     puts(divider);
-    puts("Current RAM bank#........: ");
-    puts(utoa((unsigned int)bank_num, ibuf1, RADIX_DEC));
-    puts("\n\r");
-    puts("Current memory address...: $");
-    puts(utoa((unsigned int)curr_addr, ibuf1, RADIX_HEX));
-    puts("\n\r");
-    puts("Next free memory address.: $");
+    puts("Source code bank#........: ");
+    puts(itoa(code_bank_num, ibuf1, RADIX_DEC));
+    puts("\n\rNext free memory address.: $");
     puts(utoa((unsigned int)lastaddr, ibuf1, RADIX_HEX));
-    puts("\n\r");
-    puts("Current line#............: ");
-    puts(utoa((unsigned int)line_num, ibuf1, RADIX_DEC));
-    puts("\n\r");
-    puts("Last line#...............: ");
+    puts("\n\rLast line#...............: ");
     puts(utoa((unsigned int)last_line, ibuf1, RADIX_DEC));
+    puts("\n\rLines in buffer..........: ");
+    puts(utoa((unsigned int)line_count, ibuf1, RADIX_DEC));
     puts("\n\r");
-    puts("Lines in buffer..........: ");
+    puts(divider);
+    check_buf(out_bank_num);
+    puts(divider);
+    puts("Output bank#.............: ");
+    puts(itoa(out_bank_num, ibuf1, RADIX_DEC));
+    puts("\n\rNext free memory address.: $");
+    puts(utoa((unsigned int)lastaddr, ibuf1, RADIX_HEX));
+    puts("\n\rLast line#...............: ");
+    puts(utoa((unsigned int)last_line, ibuf1, RADIX_DEC));
+    puts("\n\rLines in buffer..........: ");
     puts(utoa((unsigned int)line_count, ibuf1, RADIX_DEC));
     puts("\n\r");
     puts(divider);
@@ -770,42 +812,26 @@ void mem_info(void)
 
 /*
  * Sanity check.
- * Check the text buffer and set global variables.
+ * Check the text buffer located in bank# = bank and set global variables.
  * Return non-zero if buffer has text or was ever initialized.
- * Return 0 if buffer has non-initialized (random) data.
+ * Return 0 if buffer has non-initialized (random) data or the code and
+ * output buffers are in the same banks or bank# is out of range.
  */
-int check_buf(void)
+int check_buf(int bank)
 {
     uint16_t addr = START_BRAM;
     uint16_t lcount = MAX_LINES;
     int ret = 0;
 
-    // RAM bank# sanity check:
-    if (bank_num != *RAMBANKNUM) {
-        puts("\n\rWARNING: Application RAM bank# is different than indicated by system variable.");
-        puts("\n\rSystem bank#.....: ");
-        puts(itoa(*RAMBANKNUM, ibuf1, RADIX_DEC));
-        puts("\n\rApplication bank#: ");
-        puts(itoa(bank_num, ibuf1, RADIX_DEC));
-        puts("\n\rWhich value should be set?");
-        puts("\n\r   a|A - app. / s|S - system / number - Other ");
-        get_line();
-        puts("\n\r");
-        if (*prompt_buf == 's' ||  *prompt_buf == 'S') {
-            bank_num = *RAMBANKNUM;
-        } else if (*prompt_buf != 'a' && *prompt_buf != 'A') {
-            bank_num = atoi(prompt_buf);
-            if (bank_num < 0 || bank_num > 7) {
-                prn_error(ERROR_BADARG);
-                bank_num = 0;
-                puts("bank# = 0\n\r");
-            }
-        }
-        __asm__("lda %v", bank_num);
-        __asm__("jsr %w", MOS_BANKEDRAMSEL);
+    if (code_bank_num == out_bank_num) {
+        prn_error(ERROR_BANKSEQUAL);
+        return ret;
     }
-    //bank_num = *RAMBANKNUM;
-    if (0 == bankinit_flags[bank_num]) {
+    if (bank < 0 || bank > 7) {
+        prn_error(ERROR_BADBANK);
+        return ret;
+    }
+    if (0 == bankinit_flags[bank]) {
         // Check if the buffer was ever initialized.
         // Several protective measures applied to prevent this loop from
         // looping forever.
@@ -828,7 +854,7 @@ int check_buf(void)
         ret = 1;
     }
     if (ret) {
-        bankinit_flags[bank_num] = 1;   // set the flag, buffer is sane
+        bankinit_flags[bank] = 1;   // set the flag, buffer is sane
         addr = START_BRAM;
         line_count = 0;
         // Find last line (pointing to null_txt_hdr) and line count.
@@ -850,14 +876,6 @@ int check_buf(void)
         }
         if (ret) {
             lastaddr = addr + strlen(null_txt_hdr);
-            if (0 == line_count
-                || sel_begin > last_line
-                || sel_end > last_line) {
-
-                sel_begin = 0;
-                sel_end = 0;
-                puts("WARNING: Text selection was reset to line #0.\n\r");
-            }
             if (line_num > last_line) {
 
                 line_num = last_line;
@@ -869,12 +887,12 @@ int check_buf(void)
         } else {
             prn_error(ERROR_TIMEOUT);
             puts("Text buffer may be corrupted.");
-            texted_init_buf();
+            init_buf();
             ret = isnull_hdr((const char *)START_BRAM);
         }
     } else {
         prn_error(ERROR_BUFNOTINIT);
-        texted_init_buf();
+        init_buf();
         ret = isnull_hdr((const char *)START_BRAM);
     }
 
@@ -887,8 +905,8 @@ int main(void)
 
     // initialize global variables
     line_num = 0;
-    sel_begin = 0;
-    sel_end = 0;
+    code_bank_num = 0;
+    out_bank_num = 1;
     bank_num = 0;
     curr_addr = START_BRAM;
     last_line = 0;
