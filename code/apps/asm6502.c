@@ -34,6 +34,7 @@
 #define RADIX_HEX       16
 #define RADIX_BIN       2
 #define MAX_LINES       ((END_BRAM-START_BRAM)/6)
+#define SYMBTBL_SIZE    64
 
 // command codes
 enum cmdcodes
@@ -71,12 +72,13 @@ enum eErrors {
     ERROR_FULLBUF,
     ERROR_BADBANK,
     ERROR_BANKSEQUAL,
+    ERROR_SYMBFULL,
     //------------------
     ERROR_UNKNOWN
 };
 
 // Error messages.
-const char *ga_errmsg[12] =
+const char *ga_errmsg[13] =
 {
     "OK.",
     "Unknown command.",
@@ -88,6 +90,7 @@ const char *ga_errmsg[12] =
     "Buffer full.",
     "Invalid RAM bank#. (expected: 0..7)",
     "Code and output buffers must be in different banks.",
+    "Symbol table full.",
     "Unknown."
 };
 
@@ -141,6 +144,11 @@ enum eAddrModes {
     INDINY,     // (aa),Y
     REL,        // aaaa
     ACC         // Acc
+};
+
+struct symb {
+    char name[36];
+    uint16_t val;
 };
 
 struct instr {
@@ -216,11 +224,13 @@ const struct instr OpCodes[57] = {
 // globals
 int  cmd_code = CMD_NULL;
 char prompt_buf[PROMPTBUF_SIZE];
+char out_buf[TEXTLINE_SIZE];
 char ibuf1[IBUF1_SIZE], ibuf2[IBUF2_SIZE], ibuf3[IBUF3_SIZE];
 char bankinit_flags[8];
+struct symb symbol_table[SYMBTBL_SIZE];
 unsigned int line_num, line_count, last_line;
-uint16_t curr_addr, lastaddr;
-int code_bank_num, out_bank_num, bank_num;
+uint16_t curr_addr, lastaddr, asm_pc;
+int code_bank_num, out_bank_num, bank_num, symb_idx;
 unsigned long tmr64;
 
 // Functions prototypes.
@@ -249,8 +259,130 @@ void        add2output(const char *txt);
 uint16_t    goto_line(unsigned int gtl);
 void        delete_text(unsigned int from_line, unsigned int to_line);
 uint16_t    renumber(uint16_t addr, int offs);
+void        compile(void);
+void        asm6502(const char *buf);
+void        read_line(int lnum, char *buf);
+void        add_label2symb(const char *lbl);
 
 ////////////////////////////// CODE /////////////////////////////////////
+
+/*
+ * Add label to symbol table.
+ */
+void add_label2symb(const char *lbl)
+{
+    if (symb_idx < SYMBTBL_SIZE) {
+        if (NULL != lbl && 0 < strlen(lbl)) {
+            strcpy(symbol_table[symb_idx].name, lbl);
+            symbol_table[symb_idx].name[strlen(lbl)-1] = 0; // remove ':'
+            symbol_table[symb_idx].val = asm_pc;
+            symb_idx++;
+        }
+    } else {
+        prn_error(ERROR_SYMBFULL);
+        assert(__LINE__, symb_idx < SYMBTBL_SIZE, "Memory full.");
+    }
+}
+
+/*
+ * Read line lnum from text buffer to buf.
+ */
+void read_line(int lnum, char *buf)
+{
+    if (0xFFFF != goto_line(lnum)) {
+        strcpy(buf, (const char *)(curr_addr + 5));
+    }
+}
+
+/*
+ * Compile single line of assembly code in buf.
+ * Output in out_buf.
+ *
+ * name = expr
+ * label:
+ * asminstr arg
+ *
+ */
+void asm6502(const char *buf)
+{
+    int i = 0, is_asm = 0;
+    int n0, n1;
+    struct instr asm_instr;
+    unsigned char buf1[3];
+
+    n0 = adv2nxt_token(0);
+    n1 = adv2next_spc(n0);
+    if (n1 > n0) {
+        if (buf[n1-1] == ':') {
+            // it is a label
+            add_label2symb(buf + n0);
+            n0 = adv2nxt_token(n1);
+            n1 = adv2next_spc(n0);
+            if (n1 == n0) {
+                return;
+            }
+        }
+        while (1) {
+            asm_instr = OpCodes[i];
+            // check if 1-st token is a 6502 asm instr.
+            if (0 == strncmp(asm_instr.mnem, buf + n0, 3)) {
+                is_asm = 1;
+                break;
+            }
+            if (0 == strncmp(asm_instr.mnem, "nnn", 3)) {
+                break;  // the end of opcodes table
+            }
+            i++;
+        }
+        n0 = adv2nxt_token(n1);
+        n1 = adv2next_spc(n0);
+        if (n1 > n0) {
+            if (0 == is_asm) {
+                // may be name = expr assignment or one of the pseudo commands
+                // like .byte, .word.
+            } else {
+                // assembly instruction, parse argument
+            }
+        }
+    }
+    // prepare output buffer
+    /***
+    if (strlen(out_buf) == 0) {
+        memset(out_buf, 0, TEXTLINE_SIZE);
+        strcpy(out_buf, "w ");
+        utoa(asm_pc, ibuf1, RADIX_HEX);
+        if (strlen(ibuf1) < 4) {
+            strncpy(ibuf2, "000", 4 - strlen(ibuf1));
+            strcat(ibuf2, ibuf1);
+            strcpy(ibuf1, ibuf2);
+        }
+        strcat(out_buf, ibuf1);
+        strcat(out_buf, " ");
+    }***/
+}
+
+/*
+ * Assemble (compile) the MOS 6502 assembly program.
+ */
+void compile(void)
+{
+    unsigned int code_lines;
+    unsigned int code_curr_line = 0;
+
+    asm_pc = 0;
+    memset(out_buf, 0, TEXTLINE_SIZE);
+    check_buf(code_bank_num);
+    code_lines = line_count;
+    while (code_curr_line < line_count) {
+        // switch to source code bank
+        check_buf(code_bank_num);
+        read_line(code_curr_line, prompt_buf);
+        asm6502(prompt_buf);
+        check_buf(out_bank_num);
+        add2output(out_buf);
+        code_curr_line++;
+    }
+}
 
 /*
  * If the condition evaluates to zero (false), prints a message and aborts
@@ -970,15 +1102,13 @@ int main(void)
     last_line = 0;
     line_count = 0;
     lastaddr = START_BRAM;
+    symb_idx = 0;
 
     // initialize text buffer init flags
     for (i=0; i<8; i++) {
         bankinit_flags[i] = 0;
     }
     prn_banner();
-    // Select memory bank 0
-    __asm__("lda %v", bank_num);
-    __asm__("jsr %w", MOS_BANKEDRAMSEL);
     mem_info();
     cmd_shell();
     return 0;
