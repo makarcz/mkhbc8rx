@@ -260,22 +260,22 @@ uint16_t    goto_line(unsigned int gtl);
 void        delete_text(unsigned int from_line, unsigned int to_line);
 uint16_t    renumber(uint16_t addr, int offs);
 void        compile(void);
-void        asm6502(const char *buf);
+void        asm6502(const char *buf, uint16_t pass);
 void        read_line(int lnum, char *buf);
-void        add_label2symb(const char *lbl);
+void        add_label2symb(const char *lbl, uint16_t val);
 
 ////////////////////////////// CODE /////////////////////////////////////
 
 /*
- * Add label to symbol table.
+ * Add entry / item (name, value) to symbol table.
  */
-void add_label2symb(const char *lbl)
+void add_label2symb(const char *lbl, uint16_t val)
 {
     if (symb_idx < SYMBTBL_SIZE) {
         if (NULL != lbl && 0 < strlen(lbl)) {
             strcpy(symbol_table[symb_idx].name, lbl);
             symbol_table[symb_idx].name[strlen(lbl)-1] = 0; // remove ':'
-            symbol_table[symb_idx].val = asm_pc;
+            symbol_table[symb_idx].val = val;
             symb_idx++;
         }
     } else {
@@ -298,14 +298,33 @@ void read_line(int lnum, char *buf)
  * Compile single line of assembly code in buf.
  * Output in out_buf.
  *
+ * .org num
  * name = expr
+ * expr = <
+ *    literal op literal
+ * >
+ * literal = <
+ *    num, <num, >num
+ * >
+ * num = <
+ *    DEC8, DEC16, $hh, $hhhh, label
+ * >
  * label:
  * asminstr arg
+ * arg = <
+ *    #DEC8
+ *    num
+ *    num,x
+ *    num,y
+ *    (num)
+ *    (DEC8,x)
+ *    (DEC8),y
+ * >
  *
  */
-void asm6502(const char *buf)
+void asm6502(const char *buf, uint16_t pass)
 {
-    int i = 0, is_asm = 0;
+    int i = 0, opcidx = -1;
     int n0, n1;
     struct instr asm_instr;
     unsigned char buf1[3];
@@ -313,35 +332,53 @@ void asm6502(const char *buf)
     n0 = adv2nxt_token(0);
     n1 = adv2next_spc(n0);
     if (n1 > n0) {
-        if (buf[n1-1] == ':') {
-            // it is a label
-            add_label2symb(buf + n0);
+        // check if .org (set address counter)
+        if (0 == strncmp(buf + n0, ".org", 4)) {
             n0 = adv2nxt_token(n1);
             n1 = adv2next_spc(n0);
-            if (n1 == n0) {
-                return;
+            if (n1 > n0) {
+                asm_pc = atoi(buf + n0);
             }
+            return;
         }
-        while (1) {
-            asm_instr = OpCodes[i];
-            // check if 1-st token is a 6502 asm instr.
-            if (0 == strncmp(asm_instr.mnem, buf + n0, 3)) {
-                is_asm = 1;
-                break;
+        // check if a label in form:
+        // <string-literal>:
+        if (buf[n1-1] == ':') {
+            // it is a label
+            add_label2symb(buf + n0, asm_pc);
+            // label can only be by itself in the line, ignore the rest
+            return;
+        }
+        // check if MOS6502 assembly instr.
+        if (3 == strlen(buf + n0)) {
+            while (1) {
+                asm_instr = OpCodes[i];
+                if (0 == strncmp(asm_instr.mnem, buf + n0, 3)) {
+                    opcidx = i; // yes, 6502 instr.
+                    break;
+                }
+                if (0 == strncmp(asm_instr.mnem, "nnn", 3)) {
+                    break;  // the end of opcodes table reached
+                }
+                i++;
             }
-            if (0 == strncmp(asm_instr.mnem, "nnn", 3)) {
-                break;  // the end of opcodes table
-            }
-            i++;
         }
         n0 = adv2nxt_token(n1);
         n1 = adv2next_spc(n0);
         if (n1 > n0) {
-            if (0 == is_asm) {
+            if (0 > opcidx) {
+                // not a 6502 assembly instruction
                 // may be name = expr assignment or one of the pseudo commands
-                // like .byte, .word.
+                // like .org, .byte, .word, .string.
             } else {
-                // assembly instruction, parse argument
+                // assembly instruction followed by argument(s),
+                // parse argument, determine addressing mode and derive op-code
+            }
+        } else {
+            if (0 <= opcidx) {
+                // assembly instr. with no arguments (implied addressing mode)
+            } else {
+                // non-assembly (pseudo) instruction with no arguments
             }
         }
     }
@@ -367,17 +404,29 @@ void asm6502(const char *buf)
 void compile(void)
 {
     unsigned int code_lines;
-    unsigned int code_curr_line = 0;
+    unsigned int code_curr_line = 0, pass = 0;
 
-    asm_pc = 0;
+    asm_pc = 0x0B00; // default code start address
     memset(out_buf, 0, TEXTLINE_SIZE);
     check_buf(code_bank_num);
     code_lines = line_count;
+    // pass 0 - build symbols table only
     while (code_curr_line < line_count) {
         // switch to source code bank
         check_buf(code_bank_num);
         read_line(code_curr_line, prompt_buf);
-        asm6502(prompt_buf);
+        asm6502(prompt_buf, pass);
+        code_curr_line++;
+    }
+    pass++;
+    code_curr_line = 0;
+    asm_pc = 0x0B00;
+    // pass 1 - generate code to output
+    while (code_curr_line < line_count) {
+        // switch to source code bank
+        check_buf(code_bank_num);
+        read_line(code_curr_line, prompt_buf);
+        asm6502(prompt_buf, pass);
         check_buf(out_bank_num);
         add2output(out_buf);
         code_curr_line++;
