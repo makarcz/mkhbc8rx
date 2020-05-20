@@ -280,19 +280,19 @@ int main (void)
 
     switch(func_code) {
         case 0: // Function #0 : Print information about library.
-            puts("MKHBCROM library 1.4.3.\n\r"
-                 "(C) Marek Karcz 2018. All rights reserved.\n\r");
+            puts("MKHBCROM library 1.5.0.\n\r"
+                 "(C) Marek Karcz 2018, 2020. All rights reserved.\n\r");
             break;
         case 1: // Function #1 : Print date / time.
             date_show();
             break;
         case 2: // Function #2 : Print string from address pointed by argptr
-            puts((const char *) argptrv1);
+            puts((const char *) argptr);
             break;
         case 3: // Function #3 : Enter string from keyboard and copy to
                 //               address pointer in retptr.
-            gets((char *) argptrv1);
-            POKEW(RETPTR, argptrv1);
+            gets((char *) argptr);
+            POKEW(RETPTR, argptr);
             break;
         case 4: // Function #4 : Interactive function to set date / time.
             date_set(1);
